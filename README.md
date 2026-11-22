@@ -10,7 +10,8 @@ a DAW track. The VST3 itself still has to be built for the host's system.
 ## What you can do
 
 Pick one of 24 styles, a key, and either that style's chord line or a generated
-8-chord progression. Set tempo, feel, voicing, and rhythm. Then:
+8-chord progression. Set tempo, feel, voicing, rhythm, a per-note envelope
+(attack, decay, sustain, release), and phrase volume. Then:
 
 - press **Hear** to preview the phrase and send note on/off from the plugin
 - press play in a DAW so the plugin follows the host timeline (one chord per bar)

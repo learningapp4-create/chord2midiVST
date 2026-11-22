@@ -72,15 +72,32 @@ struct StyleDef {
 struct NoteEvent {
     double startBeats = 0.0;
     double lengthBeats = 0.0;
+    double gateBeats = 0.0;
     int midi = 60;
     int velocity = 80;
 };
 
+// Times are in beats, measured from each note. Sustain is 0..1.
+struct Envelope {
+    double attack = 0.0;
+    double decay = 0.0;
+    double sustain = 1.0;
+    double release = 0.0;
+};
+
+struct ExpressionEvent {
+    double beats = 0.0;
+    int value = 0;
+};
+
 struct Phrase {
     std::vector<NoteEvent> notes;
+    std::vector<ExpressionEvent> expression;
     double lengthBeats = 0.0;
     int bpm = 120;
     int chordCount = 0;
+    int volume = 100;
+    Envelope envelope;
 };
 
 inline constexpr int kStyleCount = 24;
@@ -99,12 +116,16 @@ bool parseProgression(const std::string& text, std::vector<Chord>& out);
 std::vector<Chord> styleProgression(const StyleDef& style, int keyIndex);
 std::vector<Chord> generateProgression(int keyIndex, std::uint32_t seed);
 
+double envelopeAt(const Envelope& envelope, double gateBeats, double beatsFromStart);
+
 Phrase renderPhrase(const StyleDef& style,
                      const std::vector<Chord>& chords,
                      int bpm,
                      Feel feel,
                      Density density,
-                     RhythmChoice rhythm);
+                     RhythmChoice rhythm,
+                     Envelope envelope = {},
+                     int volume = 100);
 
 std::vector<unsigned char> renderSmf(const Phrase& phrase);
 

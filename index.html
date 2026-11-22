@@ -74,12 +74,12 @@
 <body>
 <main>
 <h1>Chord2MIDI</h1>
-<p class="meta">Iteration 1 · 22 November 2026 · playable browser demo of the VST3 phrase</p>
-<p>Pick a style and a chord line, then press <strong>Hear</strong>. The notes you hear are the same phrase the plugin writes. <strong>Download MIDI</strong> saves a <code>.mid</code> file you can drop on a DAW track. This page needs no build step.</p>
+<p class="meta">Iteration 2 · 22 November 2026 · note envelope and phrase volume, in the browser and the VST3</p>
+<p>Pick a style and a chord line, shape each note, set how loud the whole phrase is, then press <strong>Hear</strong>. The notes you hear are the same phrase the plugin writes. <strong>Download MIDI</strong> saves a <code>.mid</code> file you can drop on a DAW track. This page needs no build step.</p>
 
 <section class="player" aria-label="Phrase player">
   <h2>Play this phrase</h2>
-  <p>Same 24 styles, key, tempo, feel, voicing, rhythm, and chord line as the plugin. Hear uses the browser. The <code>.vst3</code> itself still runs only in a plugin host.</p>
+  <p>Same 24 styles, key, tempo, feel, voicing, rhythm, and chord line as the plugin, plus a per-note envelope and a phrase volume. Hear uses the browser. The <code>.vst3</code> itself still runs only in a plugin host.</p>
   <div class="grid">
     <label>Style
       <select id="style"></select>
@@ -116,6 +116,36 @@
         <option value="4">Pairs</option>
       </select>
     </label>
+    <label>Phrase volume
+      <span class="tempo-row">
+        <input id="volume" type="range" min="0" max="100" step="1" value="100">
+        <span id="volume-readout">100%</span>
+      </span>
+    </label>
+    <label>Attack
+      <span class="tempo-row">
+        <input id="attack" type="range" min="0" max="4" step="0.01" value="0">
+        <span id="attack-readout">0 beats</span>
+      </span>
+    </label>
+    <label>Decay
+      <span class="tempo-row">
+        <input id="decay" type="range" min="0" max="4" step="0.01" value="0">
+        <span id="decay-readout">0 beats</span>
+      </span>
+    </label>
+    <label>Sustain
+      <span class="tempo-row">
+        <input id="sustain" type="range" min="0" max="100" step="1" value="100">
+        <span id="sustain-readout">100%</span>
+      </span>
+    </label>
+    <label>Release
+      <span class="tempo-row">
+        <input id="release" type="range" min="0" max="4" step="0.01" value="0">
+        <span id="release-readout">0 beats</span>
+      </span>
+    </label>
     <label class="chords">Chords
       <textarea id="chords" spellcheck="false" aria-describedby="character"></textarea>
     </label>
@@ -143,6 +173,8 @@
   <li>Feel: Straight (on the grid), Human, or Loose. Human and Loose lay some notes back. The drift is deterministic, so Hear and the file match.</li>
   <li>Voicing: Shell (root and guide tones), Close (the chord in one register), or Full (a low root and fifth, plus the upper chord; wide styles also double the treble up an octave).</li>
   <li>Rhythm: Style (that style's bass and treble grids, including its rest cycle), or an override: Block (quarter-note chords), Climb, Fall, or Pairs.</li>
+  <li>Note envelope, in beats measured from each note: attack (silence up to the peak), decay (peak down to sustain), sustain (the held level, 0–100%), and release (fall to silence after the written note). Hear follows that curve. The MIDI file writes it as expression (CC11) so a DAW sees the contour, not only one velocity.</li>
+  <li>Phrase volume, 0–100%. It scales Hear, every note velocity, and every expression value. It does not change the envelope shape.</li>
 </ul>
 
 <h2>How MIDI reaches a track</h2>
@@ -151,7 +183,7 @@
   <li><strong>Hear</strong> plays that same phrase through the browser, with a sine preview and a moving piano roll. It does not send MIDI to a DAW by itself.</li>
   <li><strong>Native plugin only.</strong> In a DAW, the VST3 sends note-on and note-off while the host plays (the DAW tempo wins), and the plugin window can drag or save the same kind of <code>.mid</code> file. Those controls are not available on this web page, because a browser cannot host the VST3.</li>
 </ul>
-<p>The file is a type-1 Standard MIDI file, 960 ticks per quarter, one track named Chord2MIDI, a tempo event, and a 4/4 time signature. Overlapping copies of the same pitch are shortened so a note-off lands before the next note-on. Note times, pitches, and velocities match the C++ phrase engine.</p>
+<p>The file is a type-1 Standard MIDI file, 960 ticks per quarter, one track named Chord2MIDI, a tempo event, and a 4/4 time signature. Note-on velocity is the style accent scaled by phrase volume. CC11 expression is the per-note envelope, also scaled by phrase volume, merged on one channel as the loudest note at each moment. Hear multiplies accent, envelope, and phrase volume once. Overlapping copies of the same pitch are shortened so a note-off lands before the next note-on. A release tail is kept when the next same pitch leaves room. Note times, pitches, velocities, and expression match the C++ phrase engine.</p>
 
 <h2>Styles</h2>
 <p>Each style is the ChordCanvas beat of that name: its chord line, tempo, treble pattern, bass pattern, rest cycle, and timing feel. Grids are onsets per bar (a quarter note is one beat; a bar is four). A rest cycle such as 2-2-4 counts onsets and leaves a gap each time the count hits the next number. Patterns are block chords, a single rising or falling line, or adjacent pairs.</p>
@@ -204,7 +236,10 @@
 <tr><td>Feel</td><td>Straight, Human, or Loose.</td></tr>
 <tr><td>Voicing</td><td>Shell, Close, or Full.</td></tr>
 <tr><td>Rhythm</td><td>Style, Block, Climb, Fall, or Pairs. Overrides keep the style's loudness shape.</td></tr>
-<tr><td>Hear / Stop</td><td>Browser playback of the phrase, with a preview tone and a playhead on the piano roll.</td></tr>
+<tr><td>Phrase volume</td><td>0–100%. Scales Hear and every note velocity and CC11 value. 0 is silent.</td></tr>
+<tr><td>Attack, decay, release</td><td>0–4 beats, counted from each note. Attack rises to the peak, decay falls to sustain, release continues after the written note.</td></tr>
+<tr><td>Sustain</td><td>0–100% of the peak, held between decay and release.</td></tr>
+<tr><td>Hear / Stop</td><td>Browser playback of the phrase, with the envelope and phrase volume, and a playhead on the piano roll.</td></tr>
 <tr><td>Download MIDI</td><td>Saves the current phrase as <code>Chord2MIDI.mid</code>.</td></tr>
 </tbody>
 </table>
@@ -212,11 +247,12 @@
 
 <h2>What this iteration added</h2>
 <ul>
-  <li>An original phrase engine: chord symbols, the 24 style settings, voicing, rest cycles, contours, feel, and transposition.</li>
-  <li>A VST3 plus a standalone app, with the same controls.</li>
-  <li>This page: Hear in the browser, a piano roll, and a MIDI download of that phrase.</li>
-  <li>Command-line tests that check every style, transposition, rests, feel, and the MIDI file. They do not need JUCE. The browser engine was checked against those same results.</li>
+  <li>A per-note envelope: attack, decay, sustain, and release, in beats. Hear follows it. The MIDI file writes the same curve as CC11 expression, and keeps the style accent in note velocity.</li>
+  <li>Phrase volume from 0 to 100%. It scales Hear and every note and expression value in the <code>.mid</code>, without changing the envelope shape.</li>
+  <li>The same controls on the VST3 editor. Host playback sends the expression along with the notes.</li>
+  <li>Tests that check the envelope curve, the CC11 contour, and phrase-volume scaling against the C++ engine.</li>
 </ul>
+<p>Iteration 1 is still here: the 24 styles, key, tempo, feel, voicing, rhythm, editable chords, the VST3, and this page's Hear and MIDI download.</p>
 
 <h2>Still missing</h2>
 <p>These stay in a native build. The browser demo does not do them:</p>
@@ -252,6 +288,16 @@
     const keyBox = document.getElementById("key");
     const tempo = document.getElementById("tempo");
     const tempoReadout = document.getElementById("tempo-readout");
+    const volume = document.getElementById("volume");
+    const volumeReadout = document.getElementById("volume-readout");
+    const attack = document.getElementById("attack");
+    const attackReadout = document.getElementById("attack-readout");
+    const decay = document.getElementById("decay");
+    const decayReadout = document.getElementById("decay-readout");
+    const sustain = document.getElementById("sustain");
+    const sustainReadout = document.getElementById("sustain-readout");
+    const release = document.getElementById("release");
+    const releaseReadout = document.getElementById("release-readout");
     const feelBox = document.getElementById("feel");
     const densityBox = document.getElementById("density");
     const rhythmBox = document.getElementById("rhythm");
@@ -299,6 +345,16 @@
     function selectedStyle() { return C.styleAt(Number(styleBox.value)); }
     function selectedKey() { return Number(keyBox.value); }
     function selectedTempo() { return Math.max(40, Math.min(200, Math.round(Number(tempo.value)))); }
+    function selectedVolume() { return Math.max(0, Math.min(100, Math.round(Number(volume.value)))); }
+    function beatValue(input) { return Math.max(0, Math.min(4, Number(input.value) || 0)); }
+    function currentEnvelope() {
+        return {
+            attack: beatValue(attack),
+            decay: beatValue(decay),
+            sustain: Math.max(0, Math.min(100, Math.round(Number(sustain.value)))) / 100,
+            release: beatValue(release)
+        };
+    }
     function feelName(value) { return ["Straight", "Human", "Loose"][value] || "Straight"; }
     function densityName(value) { return ["Shell", "Close", "Full"][value] || "Full"; }
     function rhythmName(value) { return ["Style", "Block", "Climb", "Fall", "Pairs"][value] || "Style"; }
@@ -322,8 +378,14 @@
     function renderCurrent() {
         const style = selectedStyle();
         const bpm = selectedTempo();
+        const phraseVolume = selectedVolume();
         tempoReadout.textContent = bpm + " BPM";
-        phrase = C.renderPhrase(style, progression, bpm, Number(feelBox.value), Number(densityBox.value), Number(rhythmBox.value));
+        volumeReadout.textContent = phraseVolume + "%";
+        attackReadout.textContent = beatValue(attack).toFixed(2) + " beats";
+        decayReadout.textContent = beatValue(decay).toFixed(2) + " beats";
+        sustainReadout.textContent = Math.round(currentEnvelope().sustain * 100) + "%";
+        releaseReadout.textContent = beatValue(release).toFixed(2) + " beats";
+        phrase = C.renderPhrase(style, progression, bpm, Number(feelBox.value), Number(densityBox.value), Number(rhythmBox.value), currentEnvelope(), phraseVolume);
         const keyIndex = selectedKey();
         let line;
         if (errorText) {
@@ -334,7 +396,7 @@
             else line += " in " + C.keyName(keyIndex) + " (catalogued in " + C.keyName(style.home) + ")";
             line += " · " + feelName(Number(feelBox.value)) + " · " + densityName(Number(densityBox.value))
                 + " voicing · " + rhythmName(Number(rhythmBox.value)) + " rhythm · " + phrase.bpm
-                + " BPM · " + phrase.notes.length + " notes · one chord per bar";
+                + " BPM · " + phrase.volume + "% volume · " + phrase.notes.length + " notes · one chord per bar";
             if (playing) line += " · playing";
         }
         status.textContent = line;
@@ -409,19 +471,27 @@
     function schedule(when) {
         if (!phrase || phrase.notes.length === 0) return;
         const beat = 60 / phrase.bpm;
+        const env = phrase.envelope || { attack: 0, decay: 0, sustain: 1, release: 0 };
         phrase.notes.forEach(function (note) {
             const start = when + note.startBeats * beat;
-            const duration = Math.max(0.04, note.lengthBeats * beat);
+            const durationBeats = Math.max(0.02, note.lengthBeats);
+            const duration = durationBeats * beat;
             const osc = audio.createOscillator();
             const gain = audio.createGain();
             osc.type = "sine";
             osc.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
             const peak = (note.velocity / 127) * 0.08;
-            gain.gain.setValueAtTime(0, start);
-            gain.gain.linearRampToValueAtTime(peak, start + 0.005);
-            const releaseAt = Math.max(start + 0.005, start + duration - 0.012);
-            gain.gain.setValueAtTime(peak, releaseAt);
-            gain.gain.linearRampToValueAtTime(0, start + duration);
+            const gate = note.gateBeats == null ? durationBeats : note.gateBeats;
+            const steps = 32;
+            let lastTime = start;
+            gain.gain.setValueAtTime(Math.max(0, peak * C.envelopeAt(env, gate, 0)), start);
+            for (let i = 1; i <= steps; i += 1) {
+                const t = durationBeats * (i / steps);
+                const at = start + t * beat;
+                if (at <= lastTime) continue;
+                lastTime = at;
+                gain.gain.linearRampToValueAtTime(Math.max(0, peak * C.envelopeAt(env, gate, t)), at);
+            }
             osc.connect(gain);
             gain.connect(master);
             osc.start(start);
@@ -526,6 +596,11 @@
         renderCurrent();
     });
     tempo.addEventListener("input", renderCurrent);
+    volume.addEventListener("input", renderCurrent);
+    attack.addEventListener("input", renderCurrent);
+    decay.addEventListener("input", renderCurrent);
+    sustain.addEventListener("input", renderCurrent);
+    release.addEventListener("input", renderCurrent);
     feelBox.addEventListener("change", renderCurrent);
     densityBox.addEventListener("change", renderCurrent);
     rhythmBox.addEventListener("change", renderCurrent);

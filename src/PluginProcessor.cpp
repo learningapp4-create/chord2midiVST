@@ -32,6 +32,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout PluginProcessor::createLayou
         juce::ParameterID{"density", 1}, "Voicing", choiceNames({"Shell", "Close", "Full"}), 2));
     params.push_back(std::make_unique<juce::AudioParameterChoice>(
         juce::ParameterID{"rhythm", 1}, "Rhythm", choiceNames({"Style", "Block", "Climb", "Fall", "Pairs"}), 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"volume", 1}, "Phrase volume", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"attack", 1}, "Attack", juce::NormalisableRange<float>(0.0f, 4.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"decay", 1}, "Decay", juce::NormalisableRange<float>(0.0f, 4.0f, 0.01f), 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"sustain", 1}, "Sustain", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"release", 1}, "Release", juce::NormalisableRange<float>(0.0f, 4.0f, 0.01f), 0.0f));
     return {params.begin(), params.end()};
 }
 
@@ -39,14 +49,14 @@ PluginProcessor::PluginProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "PARAMS", createLayout()),
       phrase(std::make_shared<const c2m::Phrase>()) {
-    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm"})
+    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release"})
         apvts.addParameterListener(id, this);
     rebuildNow();
 }
 
 PluginProcessor::~PluginProcessor() {
     cancelPendingUpdate();
-    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm"})
+    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release"})
         apvts.removeParameterListener(id, this);
 }
 
@@ -132,7 +142,18 @@ void PluginProcessor::renderAndPublish() {
     const auto feel = static_cast<c2m::Feel>(readChoice("feel", 3));
     const auto density = static_cast<c2m::Density>(readChoice("density", 3));
     const auto rhythm = static_cast<c2m::RhythmChoice>(readChoice("rhythm", 5));
-    auto rendered = std::make_shared<c2m::Phrase>(c2m::renderPhrase(style, progression, bpm, feel, density, rhythm));
+    const auto readFloat = [this](const char* parameterID, float fallback) {
+        const auto* value = apvts.getRawParameterValue(parameterID);
+        return value == nullptr ? fallback : value->load();
+    };
+    c2m::Envelope envelope;
+    envelope.attack = std::clamp(static_cast<double>(readFloat("attack", 0.0f)), 0.0, 4.0);
+    envelope.decay = std::clamp(static_cast<double>(readFloat("decay", 0.0f)), 0.0, 4.0);
+    envelope.sustain = std::clamp(static_cast<double>(readFloat("sustain", 100.0f)), 0.0, 100.0) / 100.0;
+    envelope.release = std::clamp(static_cast<double>(readFloat("release", 0.0f)), 0.0, 4.0);
+    const int volume = std::clamp(static_cast<int>(std::lround(readFloat("volume", 100.0f))), 0, 100);
+    auto rendered = std::make_shared<c2m::Phrase>(
+        c2m::renderPhrase(style, progression, bpm, feel, density, rhythm, envelope, volume));
 
     std::string status;
     if (!errorText.empty()) {
@@ -145,6 +166,7 @@ void PluginProcessor::renderAndPublish() {
             status += " in " + std::string(c2m::keyName(keyIndex)) + " (catalogued in " + c2m::keyName(style.homeRoot) + ")";
         status += " · " + std::string(c2m::toString(feel)) + " · " + c2m::toString(density) + " voicing · "
                   + c2m::toString(rhythm) + " rhythm · " + std::to_string(bpm) + " BPM · "
+                  + std::to_string(volume) + "% volume · "
                   + std::to_string(rendered->notes.size()) + " notes · one chord per bar";
     }
 
@@ -253,7 +275,8 @@ void PluginProcessor::releaseAll(juce::MidiBuffer& midi, int sample) {
         midi.addEvent(juce::MidiMessage::allNotesOff(1), sample);
 }
 
-void PluginProcessor::noteOn(juce::MidiBuffer& midi, int sample, int note, int velocity, int durationSamples) {
+void PluginProcessor::noteOn(juce::MidiBuffer& midi, int sample, int note, int velocity, int durationSamples,
+                            float gateBeats, float bpm, const c2m::Envelope& envelope) {
     note = std::clamp(note, 0, 127);
     velocity = std::clamp(velocity, 1, 127);
     durationSamples = std::max(1, durationSamples);
@@ -284,6 +307,9 @@ void PluginProcessor::noteOn(juce::MidiBuffer& midi, int sample, int note, int v
     slot->age = 0;
     slot->phase = 0.0f;
     slot->amp = static_cast<float>(velocity) / 127.0f;
+    slot->gateBeats = gateBeats;
+    slot->bpm = bpm;
+    slot->envelope = envelope;
     midi.addEvent(juce::MidiMessage::noteOn(1, note, static_cast<juce::uint8>(velocity)), sample);
 }
 
@@ -306,14 +332,23 @@ void PluginProcessor::playFrom(const c2m::Phrase& active, double startBeat, doub
         if (sample1 <= sample0) sample1 = std::min(blockSamples, sample0 + 1);
         if (sample1 > blockSamples) sample1 = blockSamples;
         const double safeBpm = bpm < 1.0 ? 120.0 : bpm;
-        for (const auto& event : active.notes) {
-            if (event.startBeats < position || event.startBeats >= position + take) continue;
-            const double relative = (event.startBeats - position) / take;
+        auto sampleFor = [&](double beats) {
+            const double relative = (beats - position) / take;
             int sample = sample0 + static_cast<int>(std::floor(relative * (sample1 - sample0)));
             if (sample < sample0) sample = sample0;
             if (sample >= sample1) sample = sample1 - 1;
+            return sample;
+        };
+        for (const auto& expression : active.expression) {
+            if (expression.beats < position || expression.beats >= position + take) continue;
+            midi.addEvent(juce::MidiMessage::controllerEvent(1, 11, std::clamp(expression.value, 0, 127)),
+                          sampleFor(expression.beats));
+        }
+        for (const auto& event : active.notes) {
+            if (event.startBeats < position || event.startBeats >= position + take) continue;
             const int duration = std::max(1, static_cast<int>(std::lround(event.lengthBeats * (60.0 / safeBpm) * sampleRate)));
-            noteOn(midi, sample, event.midi, event.velocity, duration);
+            noteOn(midi, sampleFor(event.startBeats), event.midi, event.velocity, duration,
+                   static_cast<float>(event.gateBeats), static_cast<float>(safeBpm), active.envelope);
         }
         consumed += take;
         position += take;
@@ -325,8 +360,6 @@ void PluginProcessor::renderVoices(juce::AudioBuffer<float>& buffer, juce::MidiB
     const int numSamples = buffer.getNumSamples();
     const int channels = buffer.getNumChannels();
     const bool playAudio = audition.load();
-    const float attackSamples = std::max(1.0f, static_cast<float>(sampleRate) * 0.005f);
-    const float releaseSamples = std::max(1.0f, static_cast<float>(sampleRate) * 0.012f);
     bool any = false;
     for (const auto& voice : voices)
         any = any || voice.on;
@@ -336,11 +369,13 @@ void PluginProcessor::renderVoices(juce::AudioBuffer<float>& buffer, juce::MidiB
         float mixed = 0.0f;
         for (auto& voice : voices) {
             if (!voice.on || sample < voice.startSample) continue;
-            const float attack = std::min(1.0f, static_cast<float>(voice.age) / attackSamples);
-            const float release = std::min(1.0f, static_cast<float>(voice.samplesLeft) / releaseSamples);
+            const double beats = voice.bpm <= 0.0f
+                                     ? 0.0
+                                     : (static_cast<double>(voice.age) / sampleRate) * (static_cast<double>(voice.bpm) / 60.0);
+            const float shaped = static_cast<float>(c2m::envelopeAt(voice.envelope, voice.gateBeats, beats));
             if (playAudio && channels > 0) {
                 const float frequency = 440.0f * std::pow(2.0f, (static_cast<float>(voice.note) - 69.0f) / 12.0f);
-                mixed += std::sin(voice.phase * 6.2831853f) * voice.amp * attack * release * 0.08f;
+                mixed += std::sin(voice.phase * 6.2831853f) * voice.amp * shaped * 0.08f;
                 voice.phase += frequency / static_cast<float>(sampleRate);
                 if (voice.phase >= 1.0f) voice.phase -= 1.0f;
             }
