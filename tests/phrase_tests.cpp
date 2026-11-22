@@ -208,6 +208,80 @@ int main() {
     const auto sameSeed = c2m::generateProgression(0, 1);
     expect(c2m::formatProgression(generated) == c2m::formatProgression(sameSeed), "generator is stable for a seed");
 
+    c2m::StyleDef probe{};
+    probe.name = "Probe";
+    probe.character = "One block chord.";
+    probe.defaultBpm = 120;
+    probe.homeRoot = 0;
+    probe.chords[0] = c2m::Chord{0, c2m::Quality::Major};
+    probe.chordCount = 1;
+    probe.treblePattern = c2m::Pattern::Block;
+    probe.trebleSteps = 1;
+    probe.trebleSkipCount = 0;
+    probe.trebleContour = c2m::Contour::Rise;
+    probe.trebleVelocity = 100;
+    probe.trebleOctaves = 1;
+    probe.bassPattern = c2m::Pattern::Block;
+    probe.bassSteps = 1;
+    probe.bassVelocity = 80;
+    probe.octaveShift = 0;
+    probe.defaultFeel = c2m::Feel::Straight;
+    const std::vector<c2m::Chord> one{c2m::Chord{0, c2m::Quality::Major}};
+    const c2m::Envelope neutral;
+    const auto plain = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Shell, c2m::RhythmChoice::Style, neutral, 100);
+    expect(!plain.notes.empty(), "probe chord sounds");
+    expect(std::abs(plain.notes[0].gateBeats - 3.36) < 1e-9, "one-step gate is 3.36 beats");
+    expect(std::abs(plain.notes[0].lengthBeats - plain.notes[0].gateBeats) < 1e-9, "zero release does not extend the note");
+
+    c2m::Envelope shaped;
+    shaped.attack = 1.0;
+    shaped.decay = 1.0;
+    shaped.sustain = 0.5;
+    shaped.release = 1.0;
+    const auto loud = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Shell, c2m::RhythmChoice::Style, shaped, 100);
+    const auto quiet = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Shell, c2m::RhythmChoice::Style, shaped, 50);
+    const auto silent = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Shell, c2m::RhythmChoice::Style, shaped, 0);
+    expect(loud.notes.size() == plain.notes.size(), "envelope keeps the notes");
+    expect(std::abs(loud.notes[0].startBeats - plain.notes[0].startBeats) < 1e-9, "envelope keeps the attack time");
+    expect(std::abs(loud.notes[0].gateBeats - plain.notes[0].gateBeats) < 1e-9, "envelope keeps the written gate");
+    expect(std::abs(loud.notes[0].lengthBeats - (loud.notes[0].gateBeats + 1.0)) < 1e-6, "release adds one beat of tail");
+    expect(loud.notes[0].velocity == plain.notes[0].velocity, "envelope does not change note velocity");
+    expect(quiet.notes.size() == loud.notes.size(), "half volume keeps the notes");
+    for (size_t i = 0; i < loud.notes.size(); ++i)
+        expect(quiet.notes[i].velocity == static_cast<int>(std::lround(loud.notes[i].velocity * 0.5)), "phrase volume halves velocity");
+    expect(silent.notes.empty(), "zero phrase volume writes no notes");
+
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 0.0)) < 1e-9, "attack starts at silence");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 0.5) - 0.5) < 1e-9, "attack is halfway at half a beat");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 1.0) - 1.0) < 1e-9, "attack reaches the peak");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 2.0) - 0.5) < 1e-9, "decay reaches sustain");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 3.36) - 0.5) < 1e-9, "sustain holds to the gate");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 3.86) - 0.25) < 1e-9, "release is halfway down");
+    expect(std::abs(c2m::envelopeAt(shaped, 3.36, 4.36)) < 1e-9, "release ends in silence");
+
+    auto ccAt = [](const c2m::Phrase& phrase, double beats) {
+        int value = -1;
+        for (const auto& event : phrase.expression)
+            if (event.beats <= beats + 1e-6) value = event.value;
+        return value;
+    };
+    expect(ccAt(loud, 0.0) == 0, "MIDI expression starts with the attack");
+    expect(ccAt(loud, 0.5) == static_cast<int>(std::lround(127.0 * 0.5)), "MIDI expression follows the attack");
+    expect(ccAt(loud, 1.0) == 127, "MIDI expression reaches full peak");
+    expect(ccAt(loud, 2.5) == static_cast<int>(std::lround(127.0 * 0.5)), "MIDI expression holds sustain");
+    expect(ccAt(loud, 4.36) == 0, "MIDI expression finishes the release");
+    expect(ccAt(quiet, 1.0) == static_cast<int>(std::lround(127.0 * 0.5)), "phrase volume halves expression");
+    expect(ccAt(quiet, 2.5) == static_cast<int>(std::lround(127.0 * 0.5 * 0.5)), "phrase volume scales the sustain expression");
+    const auto loudFile = c2m::renderSmf(loud);
+    const auto quietFile = c2m::renderSmf(quiet);
+    expect(loudFile != quietFile, "phrase volume changes the MIDI file");
+    expect(c2m::renderSmf(plain) != loudFile, "the envelope changes the MIDI file");
+    int expressionEvents = 0;
+    for (size_t i = 0; i + 2 < loudFile.size(); ++i) {
+        if (loudFile[i] == 0xB0 && loudFile[i + 1] == 11) ++expressionEvents;
+    }
+    expect(expressionEvents > 4, "the MIDI file carries a CC11 contour");
+
     if (failures) {
         std::cerr << failures << " failure(s)\n";
         return 1;

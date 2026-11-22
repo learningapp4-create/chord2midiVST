@@ -892,6 +892,7 @@
             resolved.push({
                 startBeats: event.startBeats,
                 lengthBeats: event.lengthBeats,
+                gateBeats: event.lengthBeats,
                 midi: event.midi,
                 velocity: event.velocity
             });
@@ -899,12 +900,123 @@
         return resolved;
     }
 
-    function renderPhrase(style, chords, bpm, feel, density, rhythm) {
+    function envelopeAt(envelope, gateBeats, beatsFromStart) {
+        if (beatsFromStart < 0 || gateBeats < 0) return 0;
+        const attack = Math.max(0, envelope.attack || 0);
+        const decay = Math.max(0, envelope.decay || 0);
+        const sustain = Math.min(1, Math.max(0, envelope.sustain == null ? 1 : envelope.sustain));
+        const release = Math.max(0, envelope.release || 0);
+        if (beatsFromStart > gateBeats + release) return 0;
+        function shape(time) {
+            if (time < 0) return 0;
+            if (attack <= 0 && decay <= 0) return sustain;
+            if (attack > 0 && time < attack) return time / attack;
+            if (decay > 0 && time < attack + decay) {
+                const u = (time - attack) / decay;
+                return 1 + (sustain - 1) * u;
+            }
+            return sustain;
+        }
+        if (beatsFromStart < gateBeats || release <= 0) {
+            if (release <= 0 && beatsFromStart >= gateBeats) return 0;
+            return Math.min(1, Math.max(0, shape(beatsFromStart)));
+        }
+        const atRelease = Math.min(1, Math.max(0, shape(gateBeats)));
+        const u = (beatsFromStart - gateBeats) / release;
+        if (u >= 1) return 0;
+        return Math.min(1, Math.max(0, atRelease * (1 - u)));
+    }
+
+    function pushRamp(times, from, to) {
+        if (to < from) return;
+        if (to <= from + 1e-9) {
+            times.push(from);
+            return;
+        }
+        const steps = 8;
+        for (let i = 0; i <= steps; i += 1)
+            times.push(from + (to - from) * (i / steps));
+    }
+
+    function applyDynamics(phrase, requested, requestedVolume) {
+        const envelope = {
+            attack: Math.max(0, requested && requested.attack ? requested.attack : 0),
+            decay: Math.max(0, requested && requested.decay ? requested.decay : 0),
+            sustain: Math.min(1, Math.max(0, !requested || requested.sustain == null ? 1 : requested.sustain)),
+            release: Math.max(0, requested && requested.release ? requested.release : 0)
+        };
+        const volume = clampInt(Math.round(requestedVolume == null ? 100 : requestedVolume), 0, 100);
+        const gain = volume / 100;
+        phrase.envelope = envelope;
+        phrase.volume = volume;
+        phrase.notes.forEach(function (note) { note.gateBeats = note.lengthBeats; });
+        phrase.notes.forEach(function (note, index) {
+            let room = 1e9;
+            phrase.notes.forEach(function (other, otherIndex) {
+                if (otherIndex === index || other.midi !== note.midi) return;
+                const gap = other.startBeats - (note.startBeats + note.gateBeats);
+                if (gap >= -1e-4 && gap < room) room = gap;
+            });
+            let tail = envelope.release;
+            if (room < 1e8) tail = Math.min(tail, Math.max(0, room - 1e-4));
+            if (tail < 1e-4) tail = 0;
+            note.lengthBeats = note.gateBeats + tail;
+        });
+        phrase.notes = phrase.notes.filter(function (note) {
+            let velocity = Math.round(note.velocity * gain);
+            if (velocity < 0) velocity = 0;
+            if (velocity > 127) velocity = 127;
+            note.velocity = velocity;
+            return velocity > 0;
+        });
+        let soundingEnd = phrase.lengthBeats;
+        phrase.notes.forEach(function (note) {
+            soundingEnd = Math.max(soundingEnd, note.startBeats + note.lengthBeats);
+        });
+        phrase.lengthBeats = soundingEnd;
+        const times = [];
+        phrase.notes.forEach(function (note) {
+            const gate = note.gateBeats;
+            const tail = Math.max(0, note.lengthBeats - gate);
+            times.push(note.startBeats);
+            if (envelope.attack > 0) pushRamp(times, note.startBeats, note.startBeats + Math.min(envelope.attack, gate));
+            const decayFrom = note.startBeats + Math.min(envelope.attack, gate);
+            const decayTo = note.startBeats + Math.min(envelope.attack + envelope.decay, gate);
+            if (envelope.decay > 0 && decayTo > decayFrom) pushRamp(times, decayFrom, decayTo);
+            times.push(note.startBeats + gate);
+            if (tail > 0) pushRamp(times, note.startBeats + gate, note.startBeats + gate + tail);
+        });
+        times.sort(function (a, b) { return a - b; });
+        phrase.expression = [];
+        let previous = -1;
+        let previousTime = -1;
+        times.forEach(function (time) {
+            if (previousTime >= 0 && Math.abs(time - previousTime) < 1e-6) return;
+            previousTime = time;
+            let level = 0;
+            phrase.notes.forEach(function (note) {
+                const local = time - note.startBeats;
+                if (local < -1e-8 || local > note.lengthBeats + 1e-8) return;
+                level = Math.max(level, envelopeAt(envelope, note.gateBeats, local));
+            });
+            let value = Math.round(127 * Math.min(1, Math.max(0, level)) * gain);
+            if (value < 0) value = 0;
+            if (value > 127) value = 127;
+            if (value === previous) return;
+            phrase.expression.push({ beats: time, value: value });
+            previous = value;
+        });
+    }
+
+    function renderPhrase(style, chords, bpm, feel, density, rhythm, envelope, volume) {
         const phrase = {
             notes: [],
+            expression: [],
             lengthBeats: chords.length * 4,
             bpm: clampInt(Math.round(bpm), 40, 200),
-            chordCount: chords.length
+            chordCount: chords.length,
+            volume: 100,
+            envelope: { attack: 0, decay: 0, sustain: 1, release: 0 }
         };
         if (chords.length === 0) return phrase;
         let treblePattern = style.treblePattern;
@@ -947,6 +1059,7 @@
                 style.bassContour, style.bassVelocity, chordIndex, phrase.lengthBeats, feel, 0xB22);
         }
         phrase.notes = resolveOverlaps(phrase.notes);
+        applyDynamics(phrase, envelope, volume);
         return phrase;
     }
 
@@ -982,15 +1095,24 @@
             if (midi < 0) midi = 0;
             if (midi > 127) midi = 127;
             let velocity = note.velocity;
-            if (velocity < 1) velocity = 1;
+            if (velocity < 0) velocity = 0;
             if (velocity > 127) velocity = 127;
+            if (velocity <= 0) continue;
             const onTick = Math.round(Math.max(0, note.startBeats) * ticksPerQuarter);
             let offTick = Math.round(Math.max(0, note.startBeats + note.lengthBeats) * ticksPerQuarter);
             if (offTick <= onTick) offTick = onTick + 1;
-            events.push({ tick: onTick, order: 1, status: 0x90, data1: midi, data2: velocity, index: i * 2 });
+            events.push({ tick: onTick, order: 2, status: 0x90, data1: midi, data2: velocity, index: i * 2 });
             events.push({ tick: offTick, order: 0, status: 0x80, data1: midi, data2: 0, index: i * 2 + 1 });
             if (offTick > endTick) endTick = offTick;
         }
+        (phrase.expression || []).forEach(function (expression, index) {
+            let value = expression.value;
+            if (value < 0) value = 0;
+            if (value > 127) value = 127;
+            const tick = Math.round(Math.max(0, expression.beats) * ticksPerQuarter);
+            events.push({ tick: tick, order: 1, status: 0xb0, data1: 11, data2: value, index: 100000 + index });
+            if (tick > endTick) endTick = tick;
+        });
         events.sort(function (a, b) {
             if (a.tick !== b.tick) return a.tick - b.tick;
             if (a.order !== b.order) return a.order - b.order;
@@ -1040,6 +1162,7 @@
         styleProgression: styleProgression,
         generateProgression: generateProgression,
         renderPhrase: renderPhrase,
-        renderSmf: renderSmf
+        renderSmf: renderSmf,
+        envelopeAt: envelopeAt
     };
 });

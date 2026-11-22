@@ -253,14 +253,137 @@ void resolveOverlaps(std::vector<NoteEvent>& notes) {
     notes.swap(resolved);
 }
 
+void pushRamp(std::vector<double>& times, double from, double to) {
+    if (to < from) return;
+    if (to <= from + 1.0e-9) {
+        times.push_back(from);
+        return;
+    }
+    constexpr int steps = 8;
+    for (int i = 0; i <= steps; ++i)
+        times.push_back(from + (to - from) * (static_cast<double>(i) / steps));
+}
+
+void applyDynamics(Phrase& phrase, const Envelope& requested, int requestedVolume) {
+    Envelope envelope;
+    envelope.attack = std::max(0.0, requested.attack);
+    envelope.decay = std::max(0.0, requested.decay);
+    envelope.sustain = std::clamp(requested.sustain, 0.0, 1.0);
+    envelope.release = std::max(0.0, requested.release);
+    const int volume = std::clamp(requestedVolume, 0, 100);
+    const double gain = static_cast<double>(volume) / 100.0;
+    phrase.envelope = envelope;
+    phrase.volume = volume;
+
+    for (NoteEvent& note : phrase.notes)
+        note.gateBeats = note.lengthBeats;
+
+    for (size_t i = 0; i < phrase.notes.size(); ++i) {
+        NoteEvent& note = phrase.notes[i];
+        double room = 1.0e9;
+        for (size_t j = 0; j < phrase.notes.size(); ++j) {
+            if (i == j || phrase.notes[j].midi != note.midi) continue;
+            const double gap = phrase.notes[j].startBeats - (note.startBeats + note.gateBeats);
+            if (gap >= -1.0e-4 && gap < room) room = gap;
+        }
+        double tail = envelope.release;
+        if (room < 1.0e8) tail = std::min(tail, std::max(0.0, room - 1.0e-4));
+        if (tail < 1.0e-4) tail = 0.0;
+        note.lengthBeats = note.gateBeats + tail;
+    }
+
+    std::vector<NoteEvent> sounding;
+    sounding.reserve(phrase.notes.size());
+    for (NoteEvent& note : phrase.notes) {
+        int velocity = static_cast<int>(std::lround(static_cast<double>(note.velocity) * gain));
+        velocity = std::clamp(velocity, 0, 127);
+        if (velocity <= 0) continue;
+        note.velocity = velocity;
+        sounding.push_back(note);
+    }
+    phrase.notes.swap(sounding);
+
+    double soundingEnd = phrase.lengthBeats;
+    for (const NoteEvent& note : phrase.notes)
+        soundingEnd = std::max(soundingEnd, note.startBeats + note.lengthBeats);
+    phrase.lengthBeats = soundingEnd;
+
+    std::vector<double> times;
+    for (const NoteEvent& note : phrase.notes) {
+        const double gate = note.gateBeats;
+        const double tail = std::max(0.0, note.lengthBeats - gate);
+        times.push_back(note.startBeats);
+        if (envelope.attack > 0.0)
+            pushRamp(times, note.startBeats, note.startBeats + std::min(envelope.attack, gate));
+        const double decayFrom = note.startBeats + std::min(envelope.attack, gate);
+        const double decayTo = note.startBeats + std::min(envelope.attack + envelope.decay, gate);
+        if (envelope.decay > 0.0 && decayTo > decayFrom)
+            pushRamp(times, decayFrom, decayTo);
+        times.push_back(note.startBeats + gate);
+        if (tail > 0.0)
+            pushRamp(times, note.startBeats + gate, note.startBeats + gate + tail);
+    }
+    std::sort(times.begin(), times.end());
+
+    phrase.expression.clear();
+    int previous = -1;
+    double previousTime = -1.0;
+    for (double time : times) {
+        if (previousTime >= 0.0 && std::abs(time - previousTime) < 1.0e-6) continue;
+        previousTime = time;
+        double level = 0.0;
+        for (const NoteEvent& note : phrase.notes) {
+            const double local = time - note.startBeats;
+            if (local < -1.0e-8 || local > note.lengthBeats + 1.0e-8) continue;
+            level = std::max(level, envelopeAt(envelope, note.gateBeats, local));
+        }
+        int value = static_cast<int>(std::lround(127.0 * std::clamp(level, 0.0, 1.0) * gain));
+        value = std::clamp(value, 0, 127);
+        if (value == previous) continue;
+        phrase.expression.push_back(ExpressionEvent{time, value});
+        previous = value;
+    }
+}
+
 } // namespace
+
+double envelopeAt(const Envelope& envelope, double gateBeats, double beatsFromStart) {
+    if (beatsFromStart < 0.0 || gateBeats < 0.0) return 0.0;
+    const double attack = std::max(0.0, envelope.attack);
+    const double decay = std::max(0.0, envelope.decay);
+    const double sustain = std::clamp(envelope.sustain, 0.0, 1.0);
+    const double release = std::max(0.0, envelope.release);
+    if (beatsFromStart > gateBeats + release) return 0.0;
+
+    const auto shape = [&](double time) {
+        if (time < 0.0) return 0.0;
+        if (attack <= 0.0 && decay <= 0.0) return sustain;
+        if (attack > 0.0 && time < attack) return time / attack;
+        if (decay > 0.0 && time < attack + decay) {
+            const double u = (time - attack) / decay;
+            return 1.0 + (sustain - 1.0) * u;
+        }
+        return sustain;
+    };
+
+    if (beatsFromStart < gateBeats || release <= 0.0) {
+        if (release <= 0.0 && beatsFromStart >= gateBeats) return 0.0;
+        return std::clamp(shape(beatsFromStart), 0.0, 1.0);
+    }
+    const double atRelease = std::clamp(shape(gateBeats), 0.0, 1.0);
+    const double u = (beatsFromStart - gateBeats) / release;
+    if (u >= 1.0) return 0.0;
+    return std::clamp(atRelease * (1.0 - u), 0.0, 1.0);
+}
 
 Phrase renderPhrase(const StyleDef& style,
                      const std::vector<Chord>& chords,
                      int bpm,
                      Feel feel,
                      Density density,
-                     RhythmChoice rhythm) {
+                     RhythmChoice rhythm,
+                     Envelope envelope,
+                     int volume) {
     Phrase phrase;
     phrase.bpm = std::clamp(bpm, 40, 200);
     phrase.chordCount = static_cast<int>(chords.size());
@@ -309,6 +432,7 @@ Phrase renderPhrase(const StyleDef& style,
                  style.bassContour, style.bassVelocity, chordIndex, phrase.lengthBeats, feel, 0xB22u);
     }
     resolveOverlaps(phrase.notes);
+    applyDynamics(phrase, envelope, volume);
     return phrase;
 }
 

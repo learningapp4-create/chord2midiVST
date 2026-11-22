@@ -67,6 +67,9 @@ private:
         int age = 0;
         float phase = 0.0f;
         float amp = 0.0f;
+        float gateBeats = 0.0f;
+        float bpm = 120.0f;
+        c2m::Envelope envelope;
     };
 
     void parameterChanged(const juce::String& parameterID, float newValue) override;
@@ -78,7 +81,8 @@ private:
     void renderAndPublish();
     void publishProperties();
     void releaseAll(juce::MidiBuffer& midi, int sample);
-    void noteOn(juce::MidiBuffer& midi, int sample, int note, int velocity, int durationSamples);
+    void noteOn(juce::MidiBuffer& midi, int sample, int note, int velocity, int durationSamples,
+                float gateBeats, float bpm, const c2m::Envelope& envelope);
     void playFrom(const c2m::Phrase& phrase, double startBeat, double beatSpan, double bpm, juce::MidiBuffer& midi);
     void renderVoices(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
 

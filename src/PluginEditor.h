@@ -47,6 +47,16 @@ private:
     juce::TextButton saveMidi;
     juce::Label tempoLabel;
     juce::Slider tempo;
+    juce::Label volumeLabel;
+    juce::Slider volume;
+    juce::Label attackLabel;
+    juce::Label decayLabel;
+    juce::Label sustainLabel;
+    juce::Label releaseLabel;
+    juce::Slider attack;
+    juce::Slider decay;
+    juce::Slider sustain;
+    juce::Slider release;
     juce::Label feelLabel;
     juce::Label densityLabel;
     juce::Label rhythmLabel;
@@ -64,6 +74,11 @@ private:
     std::unique_ptr<ComboAttachment> densityAttachment;
     std::unique_ptr<ComboAttachment> rhythmAttachment;
     std::unique_ptr<SliderAttachment> tempoAttachment;
+    std::unique_ptr<SliderAttachment> volumeAttachment;
+    std::unique_ptr<SliderAttachment> attackAttachment;
+    std::unique_ptr<SliderAttachment> decayAttachment;
+    std::unique_ptr<SliderAttachment> sustainAttachment;
+    std::unique_ptr<SliderAttachment> releaseAttachment;
     std::shared_ptr<juce::FileChooser> chooser;
 
     int seenTextRevision = -1;

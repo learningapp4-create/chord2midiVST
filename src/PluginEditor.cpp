@@ -53,7 +53,7 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     title.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(title);
 
-    version.setText("0.1", juce::dontSendNotification);
+    version.setText("0.2", juce::dontSendNotification);
     version.setJustificationType(juce::Justification::centredRight);
     version.setColour(juce::Label::textColourId, juce::Colour(0xffb7b0a4));
     addAndMakeVisible(version);
@@ -137,6 +137,34 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     tempo.setTextValueSuffix(" BPM");
     addAndMakeVisible(tempo);
 
+    volumeLabel.setText("Phrase volume", juce::dontSendNotification);
+    addAndMakeVisible(volumeLabel);
+    volume.setSliderStyle(juce::Slider::LinearHorizontal);
+    volume.setTextBoxStyle(juce::Slider::TextBoxRight, false, 72, 22);
+    volume.setTextValueSuffix(" %");
+    volume.setTooltip("Scales Hear and every note velocity and expression value in the MIDI file.");
+    addAndMakeVisible(volume);
+
+    auto addBeatSlider = [this](juce::Label& label, juce::Slider& slider, const juce::String& name, const juce::String& tip) {
+        label.setText(name, juce::dontSendNotification);
+        addAndMakeVisible(label);
+        slider.setSliderStyle(juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 22);
+        slider.setTextValueSuffix(" beats");
+        slider.setTooltip(tip);
+        addAndMakeVisible(slider);
+    };
+    addBeatSlider(attackLabel, attack, "Attack", "Beats from silence up to the peak of each note.");
+    addBeatSlider(decayLabel, decay, "Decay", "Beats from the peak down to the sustain level.");
+    sustainLabel.setText("Sustain", juce::dontSendNotification);
+    addAndMakeVisible(sustainLabel);
+    sustain.setSliderStyle(juce::Slider::LinearHorizontal);
+    sustain.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 22);
+    sustain.setTextValueSuffix(" %");
+    sustain.setTooltip("Level held after the decay, until the note's release.");
+    addAndMakeVisible(sustain);
+    addBeatSlider(releaseLabel, release, "Release", "Beats to fall to silence after the written note.");
+
     feelLabel.setText("Feel", juce::dontSendNotification);
     densityLabel.setText("Voicing", juce::dontSendNotification);
     rhythmLabel.setText("Rhythm", juce::dontSendNotification);
@@ -155,7 +183,7 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
 
     styleReadOnly(status, juce::Colour(0xfff3efe6), juce::Colours::transparentBlack);
     styleReadOnly(hint, juce::Colour(0xffb7b0a4), juce::Colours::transparentBlack);
-    hint.setText("Hear uses the tempo slider and a plain tone. In a DAW, press play to send MIDI on the host timeline, one chord per bar. Drag the MIDI button onto a track, or save a .mid file. Changing style loads its chords, tempo, and feel. Key transposes the line.");
+    hint.setText("Hear uses the tempo, the note envelope, and phrase volume. The MIDI file stores the accent in velocity and the envelope in CC11 expression, both scaled by phrase volume. In a DAW, press play to send that MIDI. Drag or save a .mid file. Changing style loads its chords, tempo, and feel.");
     addAndMakeVisible(status);
     addAndMakeVisible(hint);
 
@@ -165,8 +193,13 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     densityAttachment = std::make_unique<ComboAttachment>(processor.apvts, "density", densityBox);
     rhythmAttachment = std::make_unique<ComboAttachment>(processor.apvts, "rhythm", rhythmBox);
     tempoAttachment = std::make_unique<SliderAttachment>(processor.apvts, "tempo", tempo);
+    volumeAttachment = std::make_unique<SliderAttachment>(processor.apvts, "volume", volume);
+    attackAttachment = std::make_unique<SliderAttachment>(processor.apvts, "attack", attack);
+    decayAttachment = std::make_unique<SliderAttachment>(processor.apvts, "decay", decay);
+    sustainAttachment = std::make_unique<SliderAttachment>(processor.apvts, "sustain", sustain);
+    releaseAttachment = std::make_unique<SliderAttachment>(processor.apvts, "release", release);
 
-    setSize(780, 640);
+    setSize(780, 860);
     setResizable(false, false);
     refreshFromProcessor();
     startTimerHz(12);
@@ -231,9 +264,27 @@ void PluginEditor::resized() {
     feelBox.setBounds(column(boxes, columnWidth));
     densityBox.setBounds(column(boxes, columnWidth));
     rhythmBox.setBounds(boxes);
-    area.removeFromTop(12);
+    area.removeFromTop(10);
 
-    status.setBounds(area.removeFromTop(48));
+    auto volumeRow = area.removeFromTop(32);
+    volumeLabel.setBounds(volumeRow.removeFromLeft(110));
+    volume.setBounds(volumeRow);
+    area.removeFromTop(8);
+
+    auto envLabels = area.removeFromTop(18);
+    auto envSliders = area.removeFromTop(36);
+    const int envWidth = (envLabels.getWidth() - 24) / 4;
+    attackLabel.setBounds(column(envLabels, envWidth));
+    decayLabel.setBounds(column(envLabels, envWidth));
+    sustainLabel.setBounds(column(envLabels, envWidth));
+    releaseLabel.setBounds(envLabels);
+    attack.setBounds(column(envSliders, envWidth));
+    decay.setBounds(column(envSliders, envWidth));
+    sustain.setBounds(column(envSliders, envWidth));
+    release.setBounds(envSliders);
+    area.removeFromTop(10);
+
+    status.setBounds(area.removeFromTop(56));
     area.removeFromTop(4);
     hint.setBounds(area.removeFromTop(72));
 }

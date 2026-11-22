@@ -52,13 +52,20 @@ std::vector<unsigned char> renderSmf(const Phrase& phrase) {
     events.reserve(phrase.notes.size() * 2);
     for (const NoteEvent& note : phrase.notes) {
         int midi = std::clamp(note.midi, 0, 127);
-        int velocity = std::clamp(note.velocity, 1, 127);
+        int velocity = std::clamp(note.velocity, 0, 127);
         uint32_t onTick = static_cast<uint32_t>(std::llround(std::max(0.0, note.startBeats) * ticksPerQuarter));
         uint32_t offTick = static_cast<uint32_t>(std::llround(std::max(0.0, note.startBeats + note.lengthBeats) * ticksPerQuarter));
         if (offTick <= onTick) offTick = onTick + 1;
-        events.push_back(Event{onTick, 1, 0x90, static_cast<unsigned char>(midi), static_cast<unsigned char>(velocity)});
+        if (velocity <= 0) continue;
+        events.push_back(Event{onTick, 2, 0x90, static_cast<unsigned char>(midi), static_cast<unsigned char>(velocity)});
         events.push_back(Event{offTick, 0, 0x80, static_cast<unsigned char>(midi), 0});
         if (offTick > endTick) endTick = offTick;
+    }
+    for (const ExpressionEvent& expression : phrase.expression) {
+        const int value = std::clamp(expression.value, 0, 127);
+        uint32_t tick = static_cast<uint32_t>(std::llround(std::max(0.0, expression.beats) * ticksPerQuarter));
+        events.push_back(Event{tick, 1, 0xB0, 11, static_cast<unsigned char>(value)});
+        if (tick > endTick) endTick = tick;
     }
     std::sort(events.begin(), events.end(), [](const Event& a, const Event& b) {
         if (a.tick != b.tick) return a.tick < b.tick;
