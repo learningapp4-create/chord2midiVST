@@ -42,6 +42,26 @@ enum class Density { Shell, Close, Full };
 
 enum class RhythmChoice { Style, Block, Climb, Fall, Pairs };
 
+// Loudness across one bar. Style keeps the catalog contour.
+// The other names are ChordCanvas every-bar shapes.
+enum class EveryBar {
+    Style = 0,
+    None,
+    Uphill,
+    Downhill,
+    Valley,
+    Hill,
+    TwoValley,
+    TwoHill
+};
+
+struct HillSettings {
+    EveryBar treble = EveryBar::Style;
+    double trebleIntensity = 0.33;
+    EveryBar bass = EveryBar::Style;
+    double bassIntensity = 0.33;
+};
+
 struct Chord {
     int root = 0;
     Quality quality = Quality::Major;
@@ -106,6 +126,7 @@ const char* keyName(int keyIndex);
 const char* toString(Feel feel);
 const char* toString(Density density);
 const char* toString(RhythmChoice rhythm);
+const char* toString(EveryBar shape);
 
 const StyleDef& styleAt(int index);
 
@@ -118,6 +139,10 @@ std::vector<Chord> generateProgression(int keyIndex, std::uint32_t seed);
 
 double envelopeAt(const Envelope& envelope, double gateBeats, double beatsFromStart);
 
+// Every-bar loudness multiplier. Style and none are flat (1).
+// Intensity 0 silences a shaped part. Intensity 1 is the full shape.
+double everyBarGain(EveryBar shape, double position, double intensity);
+
 Phrase renderPhrase(const StyleDef& style,
                      const std::vector<Chord>& chords,
                      int bpm,
@@ -125,7 +150,8 @@ Phrase renderPhrase(const StyleDef& style,
                      Density density,
                      RhythmChoice rhythm,
                      Envelope envelope = {},
-                     int volume = 100);
+                     int volume = 100,
+                     HillSettings hills = {});
 
 std::vector<unsigned char> renderSmf(const Phrase& phrase);
 

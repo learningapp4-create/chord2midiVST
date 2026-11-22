@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 
@@ -42,6 +43,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout PluginProcessor::createLayou
         juce::ParameterID{"sustain", 1}, "Sustain", juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"release", 1}, "Release", juce::NormalisableRange<float>(0.0f, 4.0f, 0.01f), 0.0f));
+    const auto everyBar = choiceNames({"Style", "none", "uphill", "downhill", "valley", "hill", "2valley", "2hill"});
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"trebleEveryBar", 1}, "Treble every-bar", everyBar, 0));
+    params.push_back(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID{"bassEveryBar", 1}, "Bass every-bar", everyBar, 0));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"trebleFilterIntensity", 1}, "Treble filter intensity",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 33.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"bassFilterIntensity", 1}, "Bass filter intensity",
+        juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 33.0f));
     return {params.begin(), params.end()};
 }
 
@@ -49,14 +61,16 @@ PluginProcessor::PluginProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "PARAMS", createLayout()),
       phrase(std::make_shared<const c2m::Phrase>()) {
-    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release"})
+    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release",
+                           "trebleEveryBar", "bassEveryBar", "trebleFilterIntensity", "bassFilterIntensity"})
         apvts.addParameterListener(id, this);
     rebuildNow();
 }
 
 PluginProcessor::~PluginProcessor() {
     cancelPendingUpdate();
-    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release"})
+    for (const char* id : {"style", "key", "tempo", "feel", "density", "rhythm", "volume", "attack", "decay", "sustain", "release",
+                           "trebleEveryBar", "bassEveryBar", "trebleFilterIntensity", "bassFilterIntensity"})
         apvts.removeParameterListener(id, this);
 }
 
@@ -152,8 +166,13 @@ void PluginProcessor::renderAndPublish() {
     envelope.sustain = std::clamp(static_cast<double>(readFloat("sustain", 100.0f)), 0.0, 100.0) / 100.0;
     envelope.release = std::clamp(static_cast<double>(readFloat("release", 0.0f)), 0.0, 4.0);
     const int volume = std::clamp(static_cast<int>(std::lround(readFloat("volume", 100.0f))), 0, 100);
+    c2m::HillSettings hills;
+    hills.treble = static_cast<c2m::EveryBar>(readChoice("trebleEveryBar", 8));
+    hills.bass = static_cast<c2m::EveryBar>(readChoice("bassEveryBar", 8));
+    hills.trebleIntensity = std::clamp(static_cast<double>(readFloat("trebleFilterIntensity", 33.0f)), 0.0, 100.0) / 100.0;
+    hills.bassIntensity = std::clamp(static_cast<double>(readFloat("bassFilterIntensity", 33.0f)), 0.0, 100.0) / 100.0;
     auto rendered = std::make_shared<c2m::Phrase>(
-        c2m::renderPhrase(style, progression, bpm, feel, density, rhythm, envelope, volume));
+        c2m::renderPhrase(style, progression, bpm, feel, density, rhythm, envelope, volume, hills));
 
     std::string status;
     if (!errorText.empty()) {
@@ -168,6 +187,10 @@ void PluginProcessor::renderAndPublish() {
                   + c2m::toString(rhythm) + " rhythm · " + std::to_string(bpm) + " BPM · "
                   + std::to_string(volume) + "% volume · "
                   + std::to_string(rendered->notes.size()) + " notes · one chord per bar";
+        if (hills.treble != c2m::EveryBar::Style || hills.bass != c2m::EveryBar::Style) {
+            status += " · treble every-bar " + std::string(c2m::toString(hills.treble))
+                      + " · bass every-bar " + std::string(c2m::toString(hills.bass));
+        }
     }
 
     std::string character = style.character == nullptr ? std::string() : style.character;

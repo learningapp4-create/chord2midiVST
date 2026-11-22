@@ -299,6 +299,20 @@ const char* toString(RhythmChoice rhythm) {
     return "Style";
 }
 
+const char* toString(EveryBar shape) {
+    switch (shape) {
+        case EveryBar::Style: return "Style";
+        case EveryBar::None: return "none";
+        case EveryBar::Uphill: return "uphill";
+        case EveryBar::Downhill: return "downhill";
+        case EveryBar::Valley: return "valley";
+        case EveryBar::Hill: return "hill";
+        case EveryBar::TwoValley: return "2valley";
+        case EveryBar::TwoHill: return "2hill";
+    }
+    return "Style";
+}
+
 const StyleDef& styleAt(int index) {
     if (index < 0) index = 0;
     if (index >= kStyleCount) index = kStyleCount - 1;

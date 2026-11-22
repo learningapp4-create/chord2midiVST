@@ -63,6 +63,14 @@ private:
     juce::ComboBox feelBox;
     juce::ComboBox densityBox;
     juce::ComboBox rhythmBox;
+    juce::Label trebleEveryLabel;
+    juce::Label bassEveryLabel;
+    juce::ComboBox trebleEvery;
+    juce::ComboBox bassEvery;
+    juce::Label trebleIntensityLabel;
+    juce::Label bassIntensityLabel;
+    juce::Slider trebleIntensity;
+    juce::Slider bassIntensity;
     juce::TextEditor status;
     juce::TextEditor hint;
 
@@ -79,6 +87,10 @@ private:
     std::unique_ptr<SliderAttachment> decayAttachment;
     std::unique_ptr<SliderAttachment> sustainAttachment;
     std::unique_ptr<SliderAttachment> releaseAttachment;
+    std::unique_ptr<ComboAttachment> trebleEveryAttachment;
+    std::unique_ptr<ComboAttachment> bassEveryAttachment;
+    std::unique_ptr<SliderAttachment> trebleIntensityAttachment;
+    std::unique_ptr<SliderAttachment> bassIntensityAttachment;
     std::shared_ptr<juce::FileChooser> chooser;
 
     int seenTextRevision = -1;

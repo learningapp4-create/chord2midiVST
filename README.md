@@ -10,8 +10,10 @@ a DAW track. The VST3 itself still has to be built for the host's system.
 ## What you can do
 
 Pick one of 24 styles, a key, and either that style's chord line or a generated
-8-chord progression. Set tempo, feel, voicing, rhythm, a per-note envelope
-(attack, decay, sustain, release), and phrase volume. Then:
+8-chord progression. Set tempo, feel, voicing, rhythm, treble and bass
+every-bar loudness (Style, none, uphill, downhill, valley, hill, 2valley,
+2hill) and filter intensity, a per-note envelope (attack, decay, sustain,
+release), and phrase volume. Then:
 
 - press **Hear** to preview the phrase and send note on/off from the plugin
 - press play in a DAW so the plugin follows the host timeline (one chord per bar)
@@ -41,6 +43,10 @@ cmake --build build-tests
 ./build-tests/phrase_tests
 ```
 
-This Linux build does not produce a Mac or Windows plugin. Those need the same
-CMake project in Xcode or Visual Studio, plus a JUCE licence choice (AGPL or
-commercial) before you ship a binary. See `THIRD_PARTY_NOTICES.md`.
+This Linux build does not produce a Mac or Windows plugin. GitHub Actions
+(`.github/workflows/installers.yml`) builds those on macOS and Windows, then
+publishes `Chord2MIDI-mac.dmg` and `Chord2MIDI-windows.exe` on the `v0.3.0`
+release. The disk image is a drag-install into `/Library/Audio/Plug-Ins/VST3`.
+The Windows installer copies the VST3 to `C:\Program Files\Common Files\VST3`.
+The binaries are unsigned. JUCE in that build is AGPLv3 unless you hold a
+commercial licence. See `THIRD_PARTY_NOTICES.md`.

@@ -184,6 +184,30 @@ float contourGain(Contour contour, float position) {
     return 1.0f;
 }
 
+double clamp01(double value) {
+    return std::max(0.0, std::min(1.0, value));
+}
+
+double dbToLinear(double db) {
+    return std::pow(10.0, db / 20.0);
+}
+
+double shapedRise(double pos, double minDb, double span) {
+    return dbToLinear(minDb + std::pow(clamp01(pos), 2.0) * span);
+}
+
+double shapedFall(double pos, double maxDb, double span) {
+    return dbToLinear(maxDb - std::pow(clamp01(pos), 2.0) * span);
+}
+
+double valleyGain(double pos, double minDb, double maxDb, double span) {
+    return pos <= 0.5 ? shapedFall(pos * 2.0, maxDb, span) : shapedRise((pos - 0.5) * 2.0, minDb, span);
+}
+
+double hillGain(double pos, double minDb, double maxDb, double span) {
+    return pos <= 0.5 ? shapedRise(pos * 2.0, minDb, span) : shapedFall((pos - 0.5) * 2.0, maxDb, span);
+}
+
 void emitPart(std::vector<NoteEvent>& notes,
               const std::vector<int>& pool,
               Pattern pattern,
@@ -191,6 +215,8 @@ void emitPart(std::vector<NoteEvent>& notes,
               const int* skip,
               int skipCount,
               Contour contour,
+              EveryBar everyBar,
+              double everyBarIntensity,
               int baseVelocity,
               int chordIndex,
               double phraseBeats,
@@ -211,9 +237,16 @@ void emitPart(std::vector<NoteEvent>& notes,
         if (start < 0.0) start = 0.0;
         if (phraseBeats > 0.0 && start >= phraseBeats)
             start = std::max(0.0, phraseBeats - length);
-        const float position = static_cast<float>(at / 4.0);
-        int velocity = static_cast<int>(std::lround(static_cast<double>(baseVelocity) * contourGain(contour, position)));
-        velocity = std::clamp(velocity, 1, 127);
+        const double barPos = at / 4.0;
+        int velocity = 0;
+        if (everyBar == EveryBar::Style) {
+            const float position = static_cast<float>(barPos);
+            velocity = static_cast<int>(std::lround(static_cast<double>(baseVelocity) * contourGain(contour, position)));
+            velocity = std::clamp(velocity, 1, 127);
+        } else {
+            velocity = static_cast<int>(std::lround(static_cast<double>(baseVelocity) * everyBarGain(everyBar, barPos, everyBarIntensity)));
+            velocity = std::clamp(velocity, 0, 127);
+        }
         for (int midi : chosen) {
             NoteEvent event;
             event.startBeats = start;
@@ -347,6 +380,44 @@ void applyDynamics(Phrase& phrase, const Envelope& requested, int requestedVolum
 
 } // namespace
 
+double everyBarGain(EveryBar shape, double position, double intensity) {
+    if (shape == EveryBar::Style || shape == EveryBar::None) return 1.0;
+    const double pos = clamp01(position);
+    const double minDb = 20.0 * std::log10(0.05);
+    const double maxDb = 20.0 * std::log10(1.3);
+    const double span = maxDb - minDb;
+    double raw = 1.0;
+    switch (shape) {
+        case EveryBar::Uphill:
+            raw = shapedRise(pos, minDb, span);
+            break;
+        case EveryBar::Downhill:
+            raw = shapedFall(pos, maxDb, span);
+            break;
+        case EveryBar::Valley:
+            raw = valleyGain(pos, minDb, maxDb, span);
+            break;
+        case EveryBar::Hill:
+            raw = hillGain(pos, minDb, maxDb, span);
+            break;
+        case EveryBar::TwoValley:
+            raw = valleyGain(std::fmod(pos * 2.0, 1.0), minDb, maxDb, span);
+            break;
+        case EveryBar::TwoHill: {
+            const double phase = std::fmod(pos * 4.0, 2.0);
+            raw = phase <= 1.0 ? shapedRise(phase, minDb, span) : shapedFall(phase - 1.0, maxDb, span);
+            break;
+        }
+        case EveryBar::Style:
+        case EveryBar::None:
+            raw = 1.0;
+            break;
+    }
+    if (intensity <= 0.0) return 0.0;
+    if (intensity >= 1.0) return raw;
+    return intensity * (raw - 1.0) + 1.0;
+}
+
 double envelopeAt(const Envelope& envelope, double gateBeats, double beatsFromStart) {
     if (beatsFromStart < 0.0 || gateBeats < 0.0) return 0.0;
     const double attack = std::max(0.0, envelope.attack);
@@ -383,7 +454,8 @@ Phrase renderPhrase(const StyleDef& style,
                      Density density,
                      RhythmChoice rhythm,
                      Envelope envelope,
-                     int volume) {
+                     int volume,
+                     HillSettings hills) {
     Phrase phrase;
     phrase.bpm = std::clamp(bpm, 40, 200);
     phrase.chordCount = static_cast<int>(chords.size());
@@ -427,9 +499,11 @@ Phrase renderPhrase(const StyleDef& style,
     for (int chordIndex = 0; chordIndex < phrase.chordCount; ++chordIndex) {
         const Pools pools = voiceChord(chords[static_cast<size_t>(chordIndex)], density, style.octaveShift, octaves);
         emitPart(phrase.notes, pools.treble, treblePattern, trebleSteps, trebleSkip, trebleSkipCount,
-                 style.trebleContour, style.trebleVelocity, chordIndex, phrase.lengthBeats, feel, 0xA11u);
+                 style.trebleContour, hills.treble, hills.trebleIntensity, style.trebleVelocity,
+                 chordIndex, phrase.lengthBeats, feel, 0xA11u);
         emitPart(phrase.notes, pools.bass, bassPattern, bassSteps, nullptr, 0,
-                 style.bassContour, style.bassVelocity, chordIndex, phrase.lengthBeats, feel, 0xB22u);
+                 style.bassContour, hills.bass, hills.bassIntensity, style.bassVelocity,
+                 chordIndex, phrase.lengthBeats, feel, 0xB22u);
     }
     resolveOverlaps(phrase.notes);
     applyDynamics(phrase, envelope, volume);

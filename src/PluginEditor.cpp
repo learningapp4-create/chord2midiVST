@@ -53,7 +53,7 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     title.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(title);
 
-    version.setText("0.2", juce::dontSendNotification);
+    version.setText("0.3", juce::dontSendNotification);
     version.setJustificationType(juce::Justification::centredRight);
     version.setColour(juce::Label::textColourId, juce::Colour(0xffb7b0a4));
     addAndMakeVisible(version);
@@ -165,6 +165,34 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     addAndMakeVisible(sustain);
     addBeatSlider(releaseLabel, release, "Release", "Beats to fall to silence after the written note.");
 
+    trebleEveryLabel.setText("Treble every-bar", juce::dontSendNotification);
+    bassEveryLabel.setText("Bass every-bar", juce::dontSendNotification);
+    addAndMakeVisible(trebleEveryLabel);
+    addAndMakeVisible(bassEveryLabel);
+    const juce::StringArray everyBar{"Style", "none", "uphill", "downhill", "valley", "hill", "2valley", "2hill"};
+    trebleEvery.addItemList(everyBar, 1);
+    bassEvery.addItemList(everyBar, 1);
+    const auto everyTip = juce::String(
+        "Loudness across each bar. Style keeps the catalog contour. "
+        "hill rises to the middle and falls. 2hill does that twice. "
+        "uphill rises, downhill falls, valley dips in the middle.");
+    trebleEvery.setTooltip(everyTip);
+    bassEvery.setTooltip(everyTip);
+    addAndMakeVisible(trebleEvery);
+    addAndMakeVisible(bassEvery);
+
+    auto addIntensity = [this](juce::Label& label, juce::Slider& slider, const juce::String& name) {
+        label.setText(name, juce::dontSendNotification);
+        addAndMakeVisible(label);
+        slider.setSliderStyle(juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 64, 22);
+        slider.setTextValueSuffix(" %");
+        slider.setTooltip("Strength of the every-bar shape. 100 is the full hill. 0 silences that part. Style ignores this.");
+        addAndMakeVisible(slider);
+    };
+    addIntensity(trebleIntensityLabel, trebleIntensity, "Treble filter intensity");
+    addIntensity(bassIntensityLabel, bassIntensity, "Bass filter intensity");
+
     feelLabel.setText("Feel", juce::dontSendNotification);
     densityLabel.setText("Voicing", juce::dontSendNotification);
     rhythmLabel.setText("Rhythm", juce::dontSendNotification);
@@ -183,7 +211,7 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
 
     styleReadOnly(status, juce::Colour(0xfff3efe6), juce::Colours::transparentBlack);
     styleReadOnly(hint, juce::Colour(0xffb7b0a4), juce::Colours::transparentBlack);
-    hint.setText("Hear uses the tempo, the note envelope, and phrase volume. The MIDI file stores the accent in velocity and the envelope in CC11 expression, both scaled by phrase volume. In a DAW, press play to send that MIDI. Drag or save a .mid file. Changing style loads its chords, tempo, and feel.");
+    hint.setText("Hear uses the tempo, the every-bar shape, the note envelope, and phrase volume. The MIDI file stores the every-bar accent in velocity and the envelope in CC11 expression, both scaled by phrase volume. Style every-bar keeps the catalog contour. In a DAW, press play to send that MIDI. Drag or save a .mid file. Changing style loads its chords, tempo, and feel.");
     addAndMakeVisible(status);
     addAndMakeVisible(hint);
 
@@ -198,8 +226,12 @@ PluginEditor::PluginEditor(PluginProcessor& processorIn)
     decayAttachment = std::make_unique<SliderAttachment>(processor.apvts, "decay", decay);
     sustainAttachment = std::make_unique<SliderAttachment>(processor.apvts, "sustain", sustain);
     releaseAttachment = std::make_unique<SliderAttachment>(processor.apvts, "release", release);
+    trebleEveryAttachment = std::make_unique<ComboAttachment>(processor.apvts, "trebleEveryBar", trebleEvery);
+    bassEveryAttachment = std::make_unique<ComboAttachment>(processor.apvts, "bassEveryBar", bassEvery);
+    trebleIntensityAttachment = std::make_unique<SliderAttachment>(processor.apvts, "trebleFilterIntensity", trebleIntensity);
+    bassIntensityAttachment = std::make_unique<SliderAttachment>(processor.apvts, "bassFilterIntensity", bassIntensity);
 
-    setSize(780, 860);
+    setSize(780, 1040);
     setResizable(false, false);
     refreshFromProcessor();
     startTimerHz(12);
@@ -284,9 +316,26 @@ void PluginEditor::resized() {
     release.setBounds(envSliders);
     area.removeFromTop(10);
 
-    status.setBounds(area.removeFromTop(56));
+    auto hillLabels = area.removeFromTop(18);
+    auto hillBoxes = area.removeFromTop(28);
+    const int hillWidth = (hillLabels.getWidth() - 8) / 2;
+    trebleEveryLabel.setBounds(column(hillLabels, hillWidth));
+    bassEveryLabel.setBounds(hillLabels);
+    trebleEvery.setBounds(column(hillBoxes, hillWidth));
+    bassEvery.setBounds(hillBoxes);
+    area.removeFromTop(8);
+
+    auto intensityLabels = area.removeFromTop(18);
+    auto intensitySliders = area.removeFromTop(36);
+    trebleIntensityLabel.setBounds(column(intensityLabels, hillWidth));
+    bassIntensityLabel.setBounds(intensityLabels);
+    trebleIntensity.setBounds(column(intensitySliders, hillWidth));
+    bassIntensity.setBounds(intensitySliders);
+    area.removeFromTop(10);
+
+    status.setBounds(area.removeFromTop(72));
     area.removeFromTop(4);
-    hint.setBounds(area.removeFromTop(72));
+    hint.setBounds(area);
 }
 
 void PluginEditor::timerCallback() {

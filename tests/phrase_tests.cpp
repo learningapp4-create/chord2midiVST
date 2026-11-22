@@ -282,6 +282,43 @@ int main() {
     }
     expect(expressionEvents > 4, "the MIDI file carries a CC11 contour");
 
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::None, 0.5, 0.0) - 1.0) < 1e-12, "none stays flat");
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::Hill, 0.0, 1.0) - 0.05) < 1e-9, "hill starts at the quiet end");
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::Hill, 0.5, 1.0) - 1.3) < 1e-9, "hill peaks in the middle of the bar");
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::Hill, 1.0, 1.0) - 0.05) < 1e-9, "hill ends at the quiet end");
+    expect(c2m::everyBarGain(c2m::EveryBar::Hill, 0.5, 0.0) == 0.0, "filter intensity 0 silences a hill");
+    const double hillStart = c2m::everyBarGain(c2m::EveryBar::Hill, 0.0, 1.0);
+    const double softened = c2m::everyBarGain(c2m::EveryBar::Hill, 0.0, 0.33);
+    expect(std::abs(softened - (0.33 * (hillStart - 1.0) + 1.0)) < 1e-12, "filter intensity blends the hill toward flat");
+    expect(c2m::everyBarGain(c2m::EveryBar::Uphill, 0.0, 1.0) < c2m::everyBarGain(c2m::EveryBar::Uphill, 1.0, 1.0), "uphill rises");
+    expect(c2m::everyBarGain(c2m::EveryBar::Downhill, 0.0, 1.0) > c2m::everyBarGain(c2m::EveryBar::Downhill, 1.0, 1.0), "downhill falls");
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::TwoHill, 0.25, 1.0) - 1.3) < 1e-9, "2hill peaks at the first crest");
+    expect(std::abs(c2m::everyBarGain(c2m::EveryBar::TwoHill, 0.75, 1.0) - 1.3) < 1e-9, "2hill peaks at the second crest");
+    expect(c2m::everyBarGain(c2m::EveryBar::Valley, 0.0, 1.0) > c2m::everyBarGain(c2m::EveryBar::Valley, 0.5, 1.0), "valley dips in the middle");
+
+    c2m::HillSettings hills;
+    hills.treble = c2m::EveryBar::Hill;
+    hills.trebleIntensity = 1.0;
+    hills.bass = c2m::EveryBar::None;
+    hills.bassIntensity = 1.0;
+    const auto hilly = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Full, c2m::RhythmChoice::Block, neutral, 100, hills);
+    bool sawQuietStart = false;
+    bool sawPeak = false;
+    bool sawFlatBass = false;
+    for (const auto& note : hilly.notes) {
+        if (note.velocity == 5 && note.startBeats < 0.01) sawQuietStart = true;
+        if (note.velocity == 127) sawPeak = true;
+        if (note.velocity == 80) sawFlatBass = true;
+    }
+    expect(sawQuietStart, "hill writes the quiet bar start into note velocity");
+    expect(sawPeak, "hill writes the mid-bar peak into note velocity");
+    expect(sawFlatBass, "none leaves the bass accent unshaped");
+    expect(c2m::renderSmf(hilly) != c2m::renderSmf(plain), "an every-bar hill changes the MIDI file");
+    const auto styled = c2m::renderPhrase(probe, one, 120, c2m::Feel::Straight, c2m::Density::Shell, c2m::RhythmChoice::Style, neutral, 100, {});
+    expect(styled.notes.size() == plain.notes.size(), "Style every-bar keeps the catalog notes");
+    for (size_t i = 0; i < plain.notes.size(); ++i)
+        expect(styled.notes[i].velocity == plain.notes[i].velocity, "Style every-bar keeps the catalog velocity");
+
     if (failures) {
         std::cerr << failures << " failure(s)\n";
         return 1;
