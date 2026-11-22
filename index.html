@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chord2MIDI</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #f6f1e8; color: #1c1b19; font: 18px/1.5 Georgia, "Iowan Old Style", serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 28px 20px 72px; }
+  h1 { font-size: 2rem; line-height: 1.15; margin: 0 0 8px; }
+  h2 { font-size: 1.35rem; margin: 2rem 0 0.5rem; }
+  p, li { max-width: 68ch; }
+  .meta { color: #5c5348; margin-top: 0; }
+  code { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 0.92em; overflow-wrap: anywhere; }
+  p, li, td, th { overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; background: #fffdf8; font-size: 0.92rem; }
+  th, td { border-bottom: 1px solid #e4d9c8; text-align: left; vertical-align: top; padding: 8px 10px; }
+  th { background: #efe4d2; }
+  .wrap { overflow-x: auto; border: 1px solid #e4d9c8; width: 0; min-width: 100%; }
+  a { color: #8a4b08; }
+  .player {
+    background: #1c1b19;
+    color: #f3efe6;
+    border-radius: 14px;
+    padding: 18px 18px 16px;
+    margin: 18px 0 8px;
+  }
+  .player h2 { color: #f3efe6; margin: 0 0 6px; font-size: 1.2rem; }
+  .player p { color: #d9d0c3; max-width: none; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 14px; }
+  label { display: flex; flex-direction: column; gap: 4px; font: 600 13px/1.2 ui-sans-serif, system-ui, sans-serif; letter-spacing: 0.02em; color: #e0a045; }
+  select, input[type="range"], textarea, button {
+    font: 16px/1.3 ui-sans-serif, system-ui, sans-serif;
+  }
+  select, textarea {
+    background: #f7f1e6;
+    color: #1c1b19;
+    border: 1px solid #c8b89a;
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  textarea { min-height: 74px; resize: vertical; width: 100%; box-sizing: border-box; }
+  .chords { grid-column: 1 / -1; }
+  .tempo-row { display: flex; align-items: center; gap: 8px; }
+  input[type="range"] { width: 100%; accent-color: #e0a045; }
+  #tempo-readout { font: 600 15px/1 ui-sans-serif, system-ui, sans-serif; color: #f3efe6; min-width: 4.5em; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  button {
+    background: #3a342c;
+    color: #f3efe6;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #4a433a; }
+  button.primary { background: #e0a045; color: #1c1b19; font-weight: 700; }
+  button.primary:hover { background: #f0b35c; }
+  button[aria-pressed="true"] { background: #f3efe6; color: #1c1b19; }
+  #character, #status { font: 15px/1.4 ui-sans-serif, system-ui, sans-serif; margin: 10px 0 0; }
+  #status { color: #f3efe6; }
+  #roll { width: 100%; height: 168px; display: block; margin-top: 12px; background: #141311; border-radius: 8px; }
+  .meter { height: 8px; background: #2e2b26; border-radius: 99px; margin-top: 10px; overflow: hidden; }
+  #meter-bar { height: 100%; width: 0; background: #e0a045; }
+  .meter-label { font: 12px/1.2 ui-sans-serif, system-ui, sans-serif; color: #b7aa98; margin: 8px 0 0; }
+  @media (max-width: 720px) {
+    .grid { grid-template-columns: 1fr; }
+    h1 { font-size: 1.7rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+<h1>Chord2MIDI</h1>
+<p class="meta">Iteration 1 · 22 November 2026 · playable browser demo of the VST3 phrase</p>
+<p>Pick a style and a chord line, then press <strong>Hear</strong>. The notes you hear are the same phrase the plugin writes. <strong>Download MIDI</strong> saves a <code>.mid</code> file you can drop on a DAW track. This page needs no build step.</p>
+
+<section class="player" aria-label="Phrase player">
+  <h2>Play this phrase</h2>
+  <p>Same 24 styles, key, tempo, feel, voicing, rhythm, and chord line as the plugin. Hear uses the browser. The <code>.vst3</code> itself still runs only in a plugin host.</p>
+  <div class="grid">
+    <label>Style
+      <select id="style"></select>
+    </label>
+    <label>Key
+      <select id="key"></select>
+    </label>
+    <label>Tempo
+      <span class="tempo-row">
+        <input id="tempo" type="range" min="40" max="200" step="1" value="71">
+        <span id="tempo-readout">71 BPM</span>
+      </span>
+    </label>
+    <label>Feel
+      <select id="feel">
+        <option value="0">Straight</option>
+        <option value="1">Human</option>
+        <option value="2">Loose</option>
+      </select>
+    </label>
+    <label>Voicing
+      <select id="density">
+        <option value="0">Shell</option>
+        <option value="1">Close</option>
+        <option value="2" selected>Full</option>
+      </select>
+    </label>
+    <label>Rhythm
+      <select id="rhythm">
+        <option value="0">Style</option>
+        <option value="1">Block</option>
+        <option value="2">Climb</option>
+        <option value="3">Fall</option>
+        <option value="4">Pairs</option>
+      </select>
+    </label>
+    <label class="chords">Chords
+      <textarea id="chords" spellcheck="false" aria-describedby="character"></textarea>
+    </label>
+  </div>
+  <div class="actions">
+    <button type="button" id="style-chords">Style chords</button>
+    <button type="button" id="new-progression">New progression</button>
+    <button type="button" id="hear" class="primary" aria-pressed="false">Hear</button>
+    <button type="button" id="download">Download MIDI</button>
+  </div>
+  <p id="character"></p>
+  <p id="status" role="status"></p>
+  <canvas id="roll" width="900" height="168" aria-label="Piano roll of the current phrase"></canvas>
+  <p class="meter-label" id="meter-label">Preview level stays quiet until Hear is playing.</p>
+  <div class="meter" aria-hidden="true"><div id="meter-bar"></div></div>
+</section>
+
+<h2>Current capabilities</h2>
+<p>This page and the VST3 share one phrase: eight chords by default, one chord per bar in 4/4. Bass and treble are separate patterns on the same MIDI channel.</p>
+<ul>
+  <li>24 styles from the ChordCanvas beat catalog, listed below. The browser uses the same style rows as the plugin.</li>
+  <li>Key of C, C#, D, Eb, E, F, F#, G, Ab, A, Bb, or B. Changing key transposes the current line. The status line names the key the style was catalogued in.</li>
+  <li>An editable chord line. <strong>Style chords</strong> reloads that style's line. <strong>New progression</strong> builds eight chords in the key: four diatonic degrees (I, ii, iii, IV, V, or vi, sometimes a major III or a minor iv), each with a colour tone, then the same four roots with a new colour.</li>
+  <li>Tempo from 40 to 200. Choosing a style sets tempo and feel to that style. Tempo is what <strong>Hear</strong> and the <code>.mid</code> file use.</li>
+  <li>Feel: Straight (on the grid), Human, or Loose. Human and Loose lay some notes back. The drift is deterministic, so Hear and the file match.</li>
+  <li>Voicing: Shell (root and guide tones), Close (the chord in one register), or Full (a low root and fifth, plus the upper chord; wide styles also double the treble up an octave).</li>
+  <li>Rhythm: Style (that style's bass and treble grids, including its rest cycle), or an override: Block (quarter-note chords), Climb, Fall, or Pairs.</li>
+</ul>
+
+<h2>How MIDI reaches a track</h2>
+<ul>
+  <li><strong>Download MIDI</strong> on this page writes a Standard MIDI file of the phrase you are hearing. Drop that file onto a DAW track. This is the path that works in the browser.</li>
+  <li><strong>Hear</strong> plays that same phrase through the browser, with a sine preview and a moving piano roll. It does not send MIDI to a DAW by itself.</li>
+  <li><strong>Native plugin only.</strong> In a DAW, the VST3 sends note-on and note-off while the host plays (the DAW tempo wins), and the plugin window can drag or save the same kind of <code>.mid</code> file. Those controls are not available on this web page, because a browser cannot host the VST3.</li>
+</ul>
+<p>The file is a type-1 Standard MIDI file, 960 ticks per quarter, one track named Chord2MIDI, a tempo event, and a 4/4 time signature. Overlapping copies of the same pitch are shortened so a note-off lands before the next note-on. Note times, pitches, and velocities match the C++ phrase engine.</p>
+
+<h2>Styles</h2>
+<p>Each style is the ChordCanvas beat of that name: its chord line, tempo, treble pattern, bass pattern, rest cycle, and timing feel. Grids are onsets per bar (a quarter note is one beat; a bar is four). A rest cycle such as 2-2-4 counts onsets and leaves a gap each time the count hits the next number. Patterns are block chords, a single rising or falling line, or adjacent pairs.</p>
+<p>Symbols match the catalog, with two normalizations: <code>Emsus2</code> is played and printed as <code>Esus2</code>, and <code>Gsus</code> as <code>Gsus4</code>. That shows up in Heartfelt and Relieve. Pitch names use one spelling (F#, Bb, Eb, Ab, C#), including after you transpose.</p>
+<div class="wrap">
+<table>
+<thead>
+<tr><th>Style</th><th>Home</th><th>BPM</th><th>Feel</th><th>Treble</th><th>Bass</th><th>Chord line</th></tr>
+</thead>
+<tbody>
+<tr><td>Await</td><td>G</td><td>71</td><td>Human</td><td>climbing pairs, sixteenth notes, rests 5-2-7; wide treble</td><td>falling bass, eighth notes</td><td>G7, Ebmaj9, Abmaj9, C9sus4, G7, Ebadd4, Abadd9, C9sus4</td></tr>
+<tr><td>Determine</td><td>Eb</td><td>113</td><td>Loose</td><td>falling pairs, eighth notes, rests 8-8</td><td>falling bass pairs, sixteenth notes</td><td>Ebmaj7, Gm11, F7sus4, Gm13, Ebmaj9, Gm9, Fsus4, Gm13</td></tr>
+<tr><td>Elephant</td><td>E</td><td>102</td><td>Straight</td><td>rising line, quarter notes, rests 7; wide treble</td><td>falling bass pairs, quarter notes</td><td>Em11, Dmaj13, Em9, Bm, Em, D, Em9, Bm9</td></tr>
+<tr><td>Floating</td><td>Bb</td><td>95</td><td>Human</td><td>climbing pairs, sixteenth notes, rests 5-6-5</td><td>falling bass pairs, sixteenth notes</td><td>Bbadd9, Gm, F9sus4, Fadd13, Bbadd4, Gm, F13, Fsus2</td></tr>
+<tr><td>Flowy</td><td>Eb</td><td>135</td><td>Loose</td><td>rising line, eighth-note triplets, rests 4-3-8; wide treble</td><td>rising bass, whole notes</td><td>Ebm, Emaj7, C#m9, Badd9, Ebm9, E, C#m13, Badd4</td></tr>
+<tr><td>Giant</td><td>Bb</td><td>80</td><td>Straight</td><td>climbing pairs, eighth-note triplets, rests 7-7-3</td><td>block bass, quarter notes</td><td>Bbm13, C#m, C#m9, Bbm11, Bbm9, C#m11, C#m7, Bbm13</td></tr>
+<tr><td>Heartfelt</td><td>D</td><td>120</td><td>Human</td><td>falling pairs, eighth notes, rests 2-8</td><td>block bass, quarter notes</td><td>Dm11, Am11, Emsus2, Gsus, Fsus2, Am7, Em7, Em11</td></tr>
+<tr><td>Heaven</td><td>B</td><td>111</td><td>Human</td><td>climbing pairs, quarter notes, rests 7-4-2; wide treble, sounds up an octave</td><td>rising bass, half notes</td><td>Bm13, G, A7sus4, Dmaj7, Bm, Gmaj13, A13, Dmaj9</td></tr>
+<tr><td>Hesitation</td><td>Bb</td><td>78</td><td>Loose</td><td>falling pairs, quarter notes, rests 4-8-8</td><td>rising bass, sixteenth notes</td><td>Bbm7, C13, Bbm11, Bbadd2, Bbm11, Cmaj7, Bbm13, Bbmaj13</td></tr>
+<tr><td>Hollow</td><td>Ab</td><td>88</td><td>Human</td><td>block chords, half notes, rests 2-8; wide treble</td><td>rising bass, quarter-note triplets</td><td>Abm, Abm7, Bbm, Eb7sus4, Abm, Abm9, Bbm9, Eb9sus4</td></tr>
+<tr><td>Hope</td><td>A</td><td>93</td><td>Loose</td><td>climbing pairs, half notes, rests 2-2-4; wide treble</td><td>falling bass, eighth-note triplets</td><td>Aadd13, A7sus4, F#m, Dmaj13, A, Asus2, F#m9, Dadd2</td></tr>
+<tr><td>Horse</td><td>F</td><td>124</td><td>Loose</td><td>falling line, eighth-note triplets, rests 3-2</td><td>falling bass pairs, half notes</td><td>Fm, Abmaj7, G, Bb, Fm11, Ab, G9, Bb9sus4</td></tr>
+<tr><td>Night</td><td>Ab</td><td>118</td><td>Loose</td><td>falling line, quarter notes, rests 3-7</td><td>block bass, half notes</td><td>Abm13, Amaj9, Abm11, Eadd2, Abm9, Amaj9, Abm, Eadd4</td></tr>
+<tr><td>Pacing</td><td>F</td><td>116</td><td>Human</td><td>block chords, eighth-note triplets, rests 3-5; wide treble</td><td>rising bass, eighth-note triplets</td><td>Fsus4, Gm11, Gm11, Eb, Fmaj7, Gm13, Gm11, Ebadd9</td></tr>
+<tr><td>Purpose</td><td>Eb</td><td>79</td><td>Straight</td><td>block chords, quarter notes, rests 8-3-3</td><td>rising bass, whole notes</td><td>Ebm11, Fm11, F#maj9, C#, Ebm13, Fm9, F#maj13, C#maj7</td></tr>
+<tr><td>Rationale</td><td>Eb</td><td>74</td><td>Loose</td><td>rising line, quarter notes, rests 3-2-6; wide treble</td><td>falling bass, quarter notes</td><td>Eb7, Bmaj7, Ab9sus4, Em9, Eb9, Badd2, Ab7sus4, Em7</td></tr>
+<tr><td>Relieve</td><td>D</td><td>120</td><td>Human</td><td>falling pairs, quarter-note triplets, rests 2-8; wide treble</td><td>block bass, whole notes</td><td>Dm11, Am11, Emsus2, Gsus, Fsus2, Am7, Em7, Em11</td></tr>
+<tr><td>Romance</td><td>A</td><td>75</td><td>Straight</td><td>falling line, eighth-note triplets, rests 7-5-8; wide treble</td><td>rising bass pairs, quarter notes</td><td>Amaj7, F#m9, Dmaj7, Amaj9, A, F#m, Dmaj13, A</td></tr>
+<tr><td>Slickback</td><td>Eb</td><td>135</td><td>Loose</td><td>block chords, sixteenth notes, rests 3-2; wide treble, sounds up an octave</td><td>rising bass pairs, quarter notes</td><td>Ebm11, C#maj9, F#maj13, B, Ebm11, C#13, F#maj7, B</td></tr>
+<tr><td>Spider</td><td>Eb</td><td>136</td><td>Straight</td><td>rising line, quarter-note triplets, rests 2-7</td><td>rising bass, eighth-note triplets</td><td>Eb9, C#m9, Eb, Emaj13, Eb9, C#m13, Eb7, Emaj7</td></tr>
+<tr><td>Starter</td><td>F</td><td>129</td><td>Straight</td><td>rising line, half notes, rests 5-2-2; wide treble</td><td>block bass, quarter-note triplets</td><td>Fadd4, Bbadd9, Csus2, C7sus4, Fmaj13, Bb, Cadd13, Cmaj7</td></tr>
+<tr><td>Steady</td><td>C#</td><td>84</td><td>Straight</td><td>block chords, quarter notes, rests 4-8-8</td><td>rising bass pairs, sixteenth notes</td><td>C#maj9, C#, Fm9, Fm9, C#maj7, C#add4, Fm9, Fm13</td></tr>
+<tr><td>Stutter</td><td>G</td><td>119</td><td>Human</td><td>block chords, quarter notes, rests 6-2-4</td><td>block bass, half notes</td><td>Gmaj7, Cmaj7, E7sus4, Cm9, Gadd4, Cadd9, E9sus4, Cm11</td></tr>
+<tr><td>Suspense</td><td>B</td><td>85</td><td>Loose</td><td>falling pairs, quarter-note triplets, rests 7-3-4; wide treble</td><td>falling bass pairs, quarter notes</td><td>B7sus4, B9sus4, Em7, Em11, B9sus4, B7sus4, Em, Em11</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Settings</h2>
+<div class="wrap">
+<table>
+<thead><tr><th>Control</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Style</td><td>Loads that style's chords, tempo, and feel. Voicing and rhythm stay where you left them.</td></tr>
+<tr><td>Key</td><td>Transposes whatever line is showing.</td></tr>
+<tr><td>Chords</td><td>Comma-separated symbols, such as <code>F#m7, Bbmaj9, C7sus4</code>. A slash bass is ignored (<code>C/E</code> plays C). A trailing comma is left alone while you type.</td></tr>
+<tr><td>Style chords</td><td>Puts the style line back without changing tempo or feel.</td></tr>
+<tr><td>New progression</td><td>Generates a new 8-chord line in the current key. The same seed always rebuilds the same line.</td></tr>
+<tr><td>Tempo</td><td>40–200 BPM for Hear and for the MIDI file.</td></tr>
+<tr><td>Feel</td><td>Straight, Human, or Loose.</td></tr>
+<tr><td>Voicing</td><td>Shell, Close, or Full.</td></tr>
+<tr><td>Rhythm</td><td>Style, Block, Climb, Fall, or Pairs. Overrides keep the style's loudness shape.</td></tr>
+<tr><td>Hear / Stop</td><td>Browser playback of the phrase, with a preview tone and a playhead on the piano roll.</td></tr>
+<tr><td>Download MIDI</td><td>Saves the current phrase as <code>Chord2MIDI.mid</code>.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>What this iteration added</h2>
+<ul>
+  <li>An original phrase engine: chord symbols, the 24 style settings, voicing, rest cycles, contours, feel, and transposition.</li>
+  <li>A VST3 plus a standalone app, with the same controls.</li>
+  <li>This page: Hear in the browser, a piano roll, and a MIDI download of that phrase.</li>
+  <li>Command-line tests that check every style, transposition, rests, feel, and the MIDI file. They do not need JUCE. The browser engine was checked against those same results.</li>
+</ul>
+
+<h2>Still missing</h2>
+<p>These stay in a native build. The browser demo does not do them:</p>
+<ul>
+  <li>Loading the VST3 in a DAW, host-synced note output, and dragging a <code>.mid</code> file out of the plugin window.</li>
+  <li>A Mac or Windows plugin binary, and AU or AAX. The Linux <code>.vst3</code> will not load on those systems.</li>
+</ul>
+<p>These are still missing from the phrase itself, in the browser and in the plugin:</p>
+<ul>
+  <li>ChordCanvas can stack up to ten rows (intro, verse, chorus, and so on). This phrase is one row.</li>
+  <li>No separate sub-bass lane, no sustain-pedal CC, and no bass rest cycle of its own. Rests follow the treble cycle. The bass plays its grid.</li>
+  <li>Pattern modes here are block, climb, fall, and pairs. Later ChordCanvas modes (walk, guide, zigzag, bebop, approach, lick, resolve) are not in these 24 styles and are not implemented.</li>
+  <li>No multi-layer instruments, reverb, or WAV bounce. Hear is a plain tone, not the ChordCanvas piano.</li>
+  <li>Voicing is shell, close, or full. It is not a note-for-note copy of every ChordCanvas register.</li>
+  <li>Feel is a laid-back drift with its own timing, not a transcription of ChordCanvas's delay formula.</li>
+  <li>New progression is a diatonic 4+4 colour loop. It is not the full Imagine feature.</li>
+  <li>Incoming MIDI is ignored. Nothing here yet triggers chords from a keyboard.</li>
+</ul>
+
+<h2>Build</h2>
+<p id="build-result">Built on Linux x86-64 with gcc and g++ 13.3.0 (CMake 3.28, Release). <code>phrase_tests</code> passed. The VST3 is <code>build/Chord2MIDI_artefacts/Release/VST3/Chord2MIDI.vst3</code>, an ELF shared object at <code>Contents/x86_64-linux/Chord2MIDI.so</code>. The standalone app is <code>build/Chord2MIDI_artefacts/Release/Standalone/Chord2MIDI</code>. No DAW was available here, so the plugin was not loaded in a host. libcurl and webkit2gtk were not installed; this build turns the JUCE web browser and curl off. The page you are reading is the way to hear the phrase without that plugin.</p>
+<p>Configure with <code>cmake -S . -B build -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_BUILD_TYPE=Release</code>, then <code>cmake --build build</code>. Pin both compilers: the default <code>c++</code> on the build machine was Clang and could not link libstdc++. CMake downloads JUCE 8.0.8. It is not stored in this repo. Phrase tests alone: <code>-DCHORD2MIDI_BUILD_PLUGIN=OFF</code>.</p>
+<p>A Mac or Windows DAW still needs this project built on that platform (Xcode or Visual Studio), producing a <code>.vst3</code> for that OS. The Linux bundle will not load there. Before shipping a binary, pick the JUCE licence you are actually using: AGPLv3 (and keep the JUCE splash screen) or a commercial JUCE licence. Details are in <code>THIRD_PARTY_NOTICES.md</code>. The Steinberg VST3 SDK arrives inside JUCE under its own terms.</p>
+
+<h2>License</h2>
+<p>Original Chord2MIDI source, including this page and <code>phrase.js</code>, is MIT. See <code>LICENSE</code>. JUCE 8 is AGPLv3 or a commercial licence from Raw Material Software, and it is fetched at build time rather than copied into the repo. See <code>THIRD_PARTY_NOTICES.md</code>. ChordCanvas source is not in this repo. The styles here are original data tables of that catalog's musical settings.</p>
+</main>
+<script src="phrase.js"></script>
+<script>
+(function () {
+    const C = window.C2M;
+    const styleBox = document.getElementById("style");
+    const keyBox = document.getElementById("key");
+    const tempo = document.getElementById("tempo");
+    const tempoReadout = document.getElementById("tempo-readout");
+    const feelBox = document.getElementById("feel");
+    const densityBox = document.getElementById("density");
+    const rhythmBox = document.getElementById("rhythm");
+    const chordBox = document.getElementById("chords");
+    const character = document.getElementById("character");
+    const status = document.getElementById("status");
+    const hearButton = document.getElementById("hear");
+    const canvas = document.getElementById("roll");
+    const meterBar = document.getElementById("meter-bar");
+    const meterLabel = document.getElementById("meter-label");
+
+    if (!C || !C.styles) {
+        status.textContent = "The phrase engine did not load.";
+        return;
+    }
+
+    C.styles.forEach(function (style, index) {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = style.name;
+        styleBox.appendChild(option);
+    });
+    for (let i = 0; i < 12; i += 1) {
+        const option = document.createElement("option");
+        option.value = String(i);
+        option.textContent = C.keyName(i);
+        keyBox.appendChild(option);
+    }
+
+    let progression = [];
+    let custom = false;
+    let seed = 1;
+    let errorText = "";
+    let phrase = null;
+    let writing = false;
+    let playing = false;
+    let audio = null;
+    let master = null;
+    let analyser = null;
+    let analyserData = null;
+    let activeNodes = [];
+    let loopTimer = 0;
+    let loopStart = 0;
+
+    function selectedStyle() { return C.styleAt(Number(styleBox.value)); }
+    function selectedKey() { return Number(keyBox.value); }
+    function selectedTempo() { return Math.max(40, Math.min(200, Math.round(Number(tempo.value)))); }
+    function feelName(value) { return ["Straight", "Human", "Loose"][value] || "Straight"; }
+    function densityName(value) { return ["Shell", "Close", "Full"][value] || "Full"; }
+    function rhythmName(value) { return ["Style", "Block", "Climb", "Fall", "Pairs"][value] || "Style"; }
+
+    function setChordText(text) {
+        writing = true;
+        chordBox.value = text;
+        writing = false;
+    }
+
+    function applyStyle(styleIndex, keyIndex) {
+        const style = C.styleAt(styleIndex);
+        tempo.value = String(style.bpm);
+        feelBox.value = String(style.feel);
+        progression = C.styleProgression(style, keyIndex);
+        custom = false;
+        errorText = "";
+        setChordText(C.formatProgression(progression));
+    }
+
+    function renderCurrent() {
+        const style = selectedStyle();
+        const bpm = selectedTempo();
+        tempoReadout.textContent = bpm + " BPM";
+        phrase = C.renderPhrase(style, progression, bpm, Number(feelBox.value), Number(densityBox.value), Number(rhythmBox.value));
+        const keyIndex = selectedKey();
+        let line;
+        if (errorText) {
+            line = errorText;
+        } else {
+            line = style.name;
+            if (keyIndex === style.home) line += " in " + C.keyName(keyIndex);
+            else line += " in " + C.keyName(keyIndex) + " (catalogued in " + C.keyName(style.home) + ")";
+            line += " · " + feelName(Number(feelBox.value)) + " · " + densityName(Number(densityBox.value))
+                + " voicing · " + rhythmName(Number(rhythmBox.value)) + " rhythm · " + phrase.bpm
+                + " BPM · " + phrase.notes.length + " notes · one chord per bar";
+            if (playing) line += " · playing";
+        }
+        status.textContent = line;
+        let figure = style.character || "";
+        if (Number(rhythmBox.value) !== C.Rhythm.Style)
+            figure = "Rhythm override is on, so this style's pattern is replaced. " + figure;
+        character.textContent = figure;
+        drawRoll(0);
+        if (playing) restartAudio();
+    }
+
+    function drawRoll(playheadBeat) {
+        const width = canvas.clientWidth || 900;
+        const height = canvas.height;
+        if (canvas.width !== width) canvas.width = width;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = "#141311";
+        ctx.fillRect(0, 0, width, height);
+        if (!phrase || phrase.lengthBeats <= 0) return;
+        const low = 36;
+        const high = 96;
+        const span = high - low;
+        for (let bar = 1; bar < phrase.chordCount; bar += 1) {
+            const x = (bar * 4 / phrase.lengthBeats) * width;
+            ctx.fillStyle = "#2a2622";
+            ctx.fillRect(x, 0, 1, height);
+        }
+        phrase.notes.forEach(function (note) {
+            const x = (note.startBeats / phrase.lengthBeats) * width;
+            const w = Math.max(2, (note.lengthBeats / phrase.lengthBeats) * width - 1);
+            const y = ((high - note.midi) / span) * (height - 8) + 4;
+            ctx.fillStyle = note.velocity > 70 ? "#e0a045" : "#f3efe6";
+            ctx.fillRect(x, y, w, 3);
+        });
+        if (playing && playheadBeat >= 0) {
+            const x = (playheadBeat / phrase.lengthBeats) * width;
+            ctx.fillStyle = "#f3efe6";
+            ctx.fillRect(x, 0, 2, height);
+        }
+    }
+
+    function stopAudio() {
+        playing = false;
+        window.clearTimeout(loopTimer);
+        activeNodes.forEach(function (node) {
+            try { node.stop(); } catch (ignore) {}
+            try { node.disconnect(); } catch (ignore) {}
+        });
+        activeNodes = [];
+        hearButton.textContent = "Hear";
+        hearButton.setAttribute("aria-pressed", "false");
+        meterBar.style.width = "0";
+        meterLabel.textContent = "Preview level stays quiet until Hear is playing.";
+    }
+
+    function ensureAudio() {
+        if (audio) return audio;
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        audio = new Ctx();
+        master = audio.createGain();
+        master.gain.value = 1;
+        analyser = audio.createAnalyser();
+        analyser.fftSize = 1024;
+        analyserData = new Uint8Array(analyser.fftSize);
+        master.connect(analyser);
+        analyser.connect(audio.destination);
+        window.c2mAudio = audio;
+        return audio;
+    }
+
+    function schedule(when) {
+        if (!phrase || phrase.notes.length === 0) return;
+        const beat = 60 / phrase.bpm;
+        phrase.notes.forEach(function (note) {
+            const start = when + note.startBeats * beat;
+            const duration = Math.max(0.04, note.lengthBeats * beat);
+            const osc = audio.createOscillator();
+            const gain = audio.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 440 * Math.pow(2, (note.midi - 69) / 12);
+            const peak = (note.velocity / 127) * 0.08;
+            gain.gain.setValueAtTime(0, start);
+            gain.gain.linearRampToValueAtTime(peak, start + 0.005);
+            const releaseAt = Math.max(start + 0.005, start + duration - 0.012);
+            gain.gain.setValueAtTime(peak, releaseAt);
+            gain.gain.linearRampToValueAtTime(0, start + duration);
+            osc.connect(gain);
+            gain.connect(master);
+            osc.start(start);
+            osc.stop(start + duration + 0.02);
+            activeNodes.push(osc);
+        });
+    }
+
+    function arm(when) {
+        loopStart = when;
+        schedule(when);
+        const duration = phrase.lengthBeats * 60 / phrase.bpm;
+        const wait = Math.max(0, (when + duration - 0.2 - audio.currentTime) * 1000);
+        loopTimer = window.setTimeout(function () {
+            if (playing) arm(loopStart + duration);
+        }, wait);
+    }
+
+    function restartAudio() {
+        window.clearTimeout(loopTimer);
+        activeNodes.forEach(function (node) {
+            try { node.stop(); } catch (ignore) {}
+            try { node.disconnect(); } catch (ignore) {}
+        });
+        activeNodes = [];
+        if (playing && audio) arm(audio.currentTime + 0.05);
+    }
+
+    function previewLevel() {
+        if (!analyser || !analyserData) return 0;
+        analyser.getByteTimeDomainData(analyserData);
+        let peak = 0;
+        for (let i = 0; i < analyserData.length; i += 1) {
+            const sample = Math.abs(analyserData[i] - 128);
+            if (sample > peak) peak = sample;
+        }
+        return peak / 128;
+    }
+
+    function tick() {
+        if (playing && phrase && audio) {
+            const beat = ((audio.currentTime - loopStart) * phrase.bpm / 60);
+            const wrapped = ((beat % phrase.lengthBeats) + phrase.lengthBeats) % phrase.lengthBeats;
+            drawRoll(wrapped);
+            const level = previewLevel();
+            meterBar.style.width = Math.min(100, Math.round(level * 100)) + "%";
+            meterLabel.textContent = level > 0.01 ? "Preview level is moving. Hear is making sound." : "Preview level is quiet.";
+        }
+        window.requestAnimationFrame(tick);
+    }
+
+    async function toggleHear() {
+        if (playing) {
+            stopAudio();
+            renderCurrent();
+            return;
+        }
+        if (!phrase || phrase.notes.length === 0) {
+            status.textContent = "Nothing to play yet.";
+            return;
+        }
+        ensureAudio();
+        if (audio.state === "suspended") await audio.resume();
+        playing = true;
+        hearButton.textContent = "Stop";
+        hearButton.setAttribute("aria-pressed", "true");
+        renderCurrent();
+    }
+
+    function downloadMidi() {
+        if (!phrase || phrase.notes.length === 0) {
+            status.textContent = "Nothing to download yet.";
+            return;
+        }
+        const bytes = new Uint8Array(C.renderSmf(phrase));
+        const blob = new Blob([bytes], { type: "audio/midi" });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = "Chord2MIDI.mid";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+        status.textContent = status.textContent.replace(/ · downloaded Chord2MIDI\.mid$/, "") + " · downloaded Chord2MIDI.mid";
+    }
+
+    styleBox.addEventListener("change", function () {
+        applyStyle(Number(styleBox.value), selectedKey());
+        renderCurrent();
+    });
+    keyBox.addEventListener("change", function () {
+        const key = selectedKey();
+        const previous = keyBox.dataset.applied || "0";
+        const delta = (key - Number(previous) + 12) % 12;
+        progression = progression.map(function (chord) {
+            return { root: (chord.root + delta) % 12, quality: chord.quality };
+        });
+        keyBox.dataset.applied = String(key);
+        errorText = "";
+        setChordText(C.formatProgression(progression));
+        renderCurrent();
+    });
+    tempo.addEventListener("input", renderCurrent);
+    feelBox.addEventListener("change", renderCurrent);
+    densityBox.addEventListener("change", renderCurrent);
+    rhythmBox.addEventListener("change", renderCurrent);
+    chordBox.addEventListener("input", function () {
+        if (writing) return;
+        const text = chordBox.value;
+        const trimmed = text.replace(/\s+$/, "");
+        if (trimmed.endsWith(",")) return;
+        const parsed = C.parseProgression(text);
+        if (!parsed) {
+            errorText = "Can't read that chord line yet. The last good phrase is still armed. Try Am7, Fmaj7, Gsus4.";
+            renderCurrent();
+            return;
+        }
+        progression = parsed;
+        custom = true;
+        errorText = "";
+        renderCurrent();
+    });
+    document.getElementById("style-chords").addEventListener("click", function () {
+        progression = C.styleProgression(selectedStyle(), selectedKey());
+        custom = false;
+        errorText = "";
+        setChordText(C.formatProgression(progression));
+        renderCurrent();
+    });
+    document.getElementById("new-progression").addEventListener("click", function () {
+        seed += 1;
+        if (seed === 0) seed = 1;
+        progression = C.generateProgression(selectedKey(), seed);
+        custom = true;
+        errorText = "";
+        setChordText(C.formatProgression(progression));
+        keyBox.dataset.applied = String(selectedKey());
+        renderCurrent();
+    });
+    hearButton.addEventListener("click", function () { toggleHear(); });
+    document.getElementById("download").addEventListener("click", downloadMidi);
+    window.addEventListener("resize", function () { drawRoll(playing ? 0 : -1); });
+
+    applyStyle(0, 0);
+    keyBox.dataset.applied = "0";
+    renderCurrent();
+    window.requestAnimationFrame(tick);
+    window.c2mPreviewLevel = previewLevel;
+})();
+</script>
+</body>
+</html>
