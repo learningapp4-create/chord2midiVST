@@ -13,6 +13,7 @@
     };
     const Pattern = { Block: 0, Climb: 1, Fall: 2, PairsUp: 3, PairsDown: 4 };
     const Contour = { Rise: 0, Fall: 1, Dip: 2, Peak: 3, DoublePeak: 4, DoubleDip: 5 };
+    const EveryBar = { Style: 0, None: 1, Uphill: 2, Downhill: 3, Valley: 4, Hill: 5, TwoValley: 6, TwoHill: 7 };
     const Feel = { Straight: 0, Human: 1, Loose: 2 };
     const Density = { Shell: 0, Close: 1, Full: 2 };
     const Rhythm = { Style: 0, Block: 1, Climb: 2, Fall: 3, Pairs: 4 };
@@ -831,7 +832,39 @@
         return f(1);
     }
 
-    function emitPart(notes, pool, pattern, steps, skip, skipCount, contour, baseVelocity, chordIndex, phraseBeats, feel, salt) {
+    function clamp01(value) { return Math.min(1, Math.max(0, value)); }
+    function dbToLinear(db) { return Math.pow(10, db / 20); }
+    function shapedRise(pos, minDb, span) { return dbToLinear(minDb + Math.pow(clamp01(pos), 2) * span); }
+    function shapedFall(pos, maxDb, span) { return dbToLinear(maxDb - Math.pow(clamp01(pos), 2) * span); }
+    function valleyGain(pos, minDb, maxDb, span) {
+        return pos <= 0.5 ? shapedFall(pos * 2, maxDb, span) : shapedRise((pos - 0.5) * 2, minDb, span);
+    }
+    function hillGain(pos, minDb, maxDb, span) {
+        return pos <= 0.5 ? shapedRise(pos * 2, minDb, span) : shapedFall((pos - 0.5) * 2, maxDb, span);
+    }
+
+    function everyBarGain(shape, position, intensity) {
+        if (shape === EveryBar.Style || shape === EveryBar.None || shape == null) return 1;
+        const pos = clamp01(position);
+        const minDb = 20 * Math.log10(0.05);
+        const maxDb = 20 * Math.log10(1.3);
+        const span = maxDb - minDb;
+        let raw = 1;
+        if (shape === EveryBar.Uphill) raw = shapedRise(pos, minDb, span);
+        else if (shape === EveryBar.Downhill) raw = shapedFall(pos, maxDb, span);
+        else if (shape === EveryBar.Valley) raw = valleyGain(pos, minDb, maxDb, span);
+        else if (shape === EveryBar.Hill) raw = hillGain(pos, minDb, maxDb, span);
+        else if (shape === EveryBar.TwoValley) raw = valleyGain((pos * 2) % 1, minDb, maxDb, span);
+        else if (shape === EveryBar.TwoHill) {
+            const phase = (pos * 4) % 2;
+            raw = phase <= 1 ? shapedRise(phase, minDb, span) : shapedFall(phase - 1, maxDb, span);
+        }
+        if (intensity <= 0) return 0;
+        if (intensity >= 1) return raw;
+        return intensity * (raw - 1) + 1;
+    }
+
+    function emitPart(notes, pool, pattern, steps, skip, skipCount, contour, everyBar, everyBarIntensity, baseVelocity, chordIndex, phraseBeats, feel, salt) {
         if (pool.length === 0 || steps < 1) return;
         const stepBeats = 4 / steps;
         let counter = 0;
@@ -856,10 +889,17 @@
             let start = when;
             if (start < 0) start = 0;
             if (phraseBeats > 0 && start >= phraseBeats) start = Math.max(0, phraseBeats - length);
-            const position = f(at / 4);
-            let velocity = Math.round(baseVelocity * contourGain(contour, position));
-            if (velocity < 1) velocity = 1;
-            if (velocity > 127) velocity = 127;
+            const barPos = at / 4;
+            let velocity;
+            if (everyBar == null || everyBar === EveryBar.Style) {
+                velocity = Math.round(baseVelocity * contourGain(contour, f(barPos)));
+                if (velocity < 1) velocity = 1;
+                if (velocity > 127) velocity = 127;
+            } else {
+                velocity = Math.round(baseVelocity * everyBarGain(everyBar, barPos, everyBarIntensity));
+                if (velocity < 0) velocity = 0;
+                if (velocity > 127) velocity = 127;
+            }
             for (let i = 0; i < chosen.length; i += 1) {
                 notes.push({ startBeats: start, lengthBeats: length, midi: chosen[i], velocity: velocity });
             }
@@ -1008,7 +1048,7 @@
         });
     }
 
-    function renderPhrase(style, chords, bpm, feel, density, rhythm, envelope, volume) {
+    function renderPhrase(style, chords, bpm, feel, density, rhythm, envelope, volume, hills) {
         const phrase = {
             notes: [],
             expression: [],
@@ -1051,12 +1091,16 @@
             trebleSkipCount = 0;
         }
         const octaves = density === Density.Full ? style.trebleOctaves : 1;
+        const trebleEvery = hills && hills.treble != null ? hills.treble : EveryBar.Style;
+        const bassEvery = hills && hills.bass != null ? hills.bass : EveryBar.Style;
+        const trebleIntensity = hills && hills.trebleIntensity != null ? hills.trebleIntensity : 0.33;
+        const bassIntensity = hills && hills.bassIntensity != null ? hills.bassIntensity : 0.33;
         for (let chordIndex = 0; chordIndex < phrase.chordCount; chordIndex += 1) {
             const pools = voiceChord(chords[chordIndex], density, style.octaveShift, octaves);
             emitPart(phrase.notes, pools.treble, treblePattern, trebleSteps, trebleSkip, trebleSkipCount,
-                style.trebleContour, style.trebleVelocity, chordIndex, phrase.lengthBeats, feel, 0xA11);
+                style.trebleContour, trebleEvery, trebleIntensity, style.trebleVelocity, chordIndex, phrase.lengthBeats, feel, 0xA11);
             emitPart(phrase.notes, pools.bass, bassPattern, bassSteps, null, 0,
-                style.bassContour, style.bassVelocity, chordIndex, phrase.lengthBeats, feel, 0xB22);
+                style.bassContour, bassEvery, bassIntensity, style.bassVelocity, chordIndex, phrase.lengthBeats, feel, 0xB22);
         }
         phrase.notes = resolveOverlaps(phrase.notes);
         applyDynamics(phrase, envelope, volume);
@@ -1150,6 +1194,7 @@
         Quality: Quality,
         Pattern: Pattern,
         Contour: Contour,
+        EveryBar: EveryBar,
         Feel: Feel,
         Density: Density,
         Rhythm: Rhythm,
@@ -1163,6 +1208,7 @@
         generateProgression: generateProgression,
         renderPhrase: renderPhrase,
         renderSmf: renderSmf,
-        envelopeAt: envelopeAt
+        envelopeAt: envelopeAt,
+        everyBarGain: everyBarGain
     };
 });

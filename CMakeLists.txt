@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Chord2MIDI VERSION 0.2.0 LANGUAGES C CXX)
+project(Chord2MIDI VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,11 +13,19 @@ add_library(chord2midi_core STATIC
     src/SmfWriter.cpp
 )
 target_include_directories(chord2midi_core PUBLIC src)
-target_compile_options(chord2midi_core PRIVATE -Wall -Wextra -Wpedantic)
+if(MSVC)
+    target_compile_options(chord2midi_core PRIVATE /W4)
+else()
+    target_compile_options(chord2midi_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 add_executable(phrase_tests tests/phrase_tests.cpp)
 target_link_libraries(phrase_tests PRIVATE chord2midi_core)
-target_compile_options(phrase_tests PRIVATE -Wall -Wextra -Wpedantic)
+if(MSVC)
+    target_compile_options(phrase_tests PRIVATE /W4)
+else()
+    target_compile_options(phrase_tests PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 enable_testing()
 add_test(NAME phrase COMMAND phrase_tests)
