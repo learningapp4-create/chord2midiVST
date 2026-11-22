@@ -1,8 +1,11 @@
 # Chord2MIDI
 
 A JUCE VST3 that turns a style, a key, and a chord line into MIDI you can drop
-on a track. The living project log is [`index.html`](index.html). Open that
-file in a browser. It does not need a build.
+on a track. The same phrase plays in the browser at
+[learningapp4-create.github.io/chord2midiVST](https://learningapp4-create.github.io/chord2midiVST/).
+That page is [`index.html`](index.html) plus [`phrase.js`](phrase.js). It does
+not need a build. Hear plays the phrase. Download MIDI saves a `.mid` file for
+a DAW track. The VST3 itself still has to be built for the host's system.
 
 ## What you can do
 
