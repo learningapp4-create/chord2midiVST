@@ -85,12 +85,14 @@ jobs:
     needs: [macos, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
       - name: Publish the release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           DMG=$(find dist -name 'Chord2MIDI-mac.dmg' -type f | head -1)
